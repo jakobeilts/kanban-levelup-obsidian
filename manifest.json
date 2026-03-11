@@ -1,0 +1,10 @@
+{
+  "id": "kanban-todo-board",
+  "name": "Kanban Todo Board",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Manage your todos in a customizable Kanban board with drag-and-drop support.",
+  "author": "Your Name",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
