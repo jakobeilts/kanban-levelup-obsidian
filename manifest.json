@@ -1,10 +1,10 @@
 {
-  "id": "kanban-todo-board",
-  "name": "Kanban Todo Board",
+  "id": "kanban-level-up",
+  "name": "Kanban Level Up",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Manage your todos in a customizable Kanban board with drag-and-drop support.",
-  "author": "Your Name",
+  "description": "Manage your todos in a customizable Kanban board with drag-and-drop support. Also level up your skills by doing so.",
+  "author": "Jakob Eilts",
   "authorUrl": "",
   "isDesktopOnly": false
 }
