@@ -25,6 +25,19 @@ Each task can have labels representing skills (for example: Programming, Writing
 
 ---
 
+# 🎬 Demo
+### Kanban Board Workflow
+Create boards, add cards, and move tasks through columns using drag & drop or the arrow buttons.
+![Kanban Demo](docs/kanban-demo.gif)
+
+### Skill Chart Growth
+Every completed task increases your Skill Chart based on its labels, allowing you to visually track how your work contributes to different skills over time.
+![Skill Chart Demo](docs/skill-chart-demo.gif)
+
+### All Done Todos
+See a timeline of everything you've completed across all boards, grouped by date and including labels and board names.
+![All Done Todos Demo](docs/done-todos-demo.gif)
+
 ## ✨ Feature Overview
 
 | Feature | Description |
