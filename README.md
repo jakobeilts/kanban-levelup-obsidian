@@ -2,6 +2,27 @@
 
 A full-featured Kanban board plugin for Obsidian with Skill tracking, completion history, and drag-and-drop support. Boards are stored as `.kanban` files directly in your vault.
 
+# 🎯 What This Plugin Is For
+
+The Kanban Todo Board plugin is a project management and personal productivity tool for Obsidian. It helps you organize tasks using a Kanban-style workflow while also tracking long-term skill development based on the work you complete.
+
+Tasks are organized on Kanban boards where you move cards through columns such as Todo → In Progress → Done. This visual workflow makes it easy to manage projects, track progress, and keep an overview of your current work.
+
+**What makes this plugin unique is the Skill Chart system.**
+Each task can have labels representing skills (for example: Programming, Writing, Research, Fitness). Whenever you complete a task, the plugin records progress in those skills and visualizes it in a radar chart.
+
+**Over time this allows you to:**
+- Track how much work you invest in different skills
+- See which areas you are improving
+- Compare your skill distribution across different time periods
+
+**In short, the plugin combines:**
+- Kanban project management
+- Todo tracking
+- Skill development analytics
+
+— all directly inside your Obsidian vault.
+
 ---
 
 ## ✨ Feature Overview
