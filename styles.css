@@ -318,7 +318,47 @@
 .kanban-skill-hdr { margin-bottom: 6px; }
 .kanban-skill-title { font-size: 18px; font-weight: 600; margin: 0; color: var(--text-normal); }
 
-/* ── Done column indicator ──────────────────────────────────────── */
+/* ── Column drag & drop ──────────────────────────────────────────── */
+
+.kanban-col-gap {
+  flex: 0 0 4px;
+  min-width: 4px;
+  align-self: stretch;
+  border-radius: 4px;
+  transition: background 0.12s, flex-basis 0.12s;
+}
+.kanban-col-gap.col-gap-active {
+  flex-basis: 20px;
+  min-width: 20px;
+  background: var(--interactive-accent);
+  opacity: 0.5;
+}
+
+.kanban-col-drag-handle {
+  display: flex;
+  align-items: center;
+  color: var(--text-faint);
+  opacity: 0;
+  cursor: grab;
+  padding: 0 2px 0 0;
+  flex-shrink: 0;
+  transition: opacity 0.12s;
+}
+.kanban-col-hdr:hover .kanban-col-drag-handle { opacity: 1; }
+.kanban-col-hdr[draggable="true"] { cursor: default; }
+
+.kanban-col.col-dragging { opacity: 0.4; }
+
+/* ── Card drop indicators ────────────────────────────────────────── */
+
+.kanban-card.card-drop-before {
+  box-shadow: 0 -3px 0 0 var(--interactive-accent);
+  margin-top: 3px;
+}
+.kanban-card.card-drop-after {
+  box-shadow: 0 3px 0 0 var(--interactive-accent);
+  margin-bottom: 3px;
+}
 
 .kanban-col-done { border-color: rgba(16,185,129,0.15); }
 

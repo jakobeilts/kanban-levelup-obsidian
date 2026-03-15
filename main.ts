@@ -118,7 +118,14 @@ export const KANBAN_VIEW_TYPE = "kanban-todo-view";
 export class KanbanView extends TextFileView {
   plugin: KanbanTodoPlugin;
   boardData: KanbanBoard = defaultBoard();
+
+  // Card drag state
   private draggedCard: { card: KanbanCard; sourceCol: KanbanColumn } | null = null;
+  private cardDropTarget: { col: KanbanColumn; index: number } | null = null;
+
+  // Column drag state
+  private draggedCol: KanbanColumn | null = null;
+  private colDropIndex: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: KanbanTodoPlugin) {
     super(leaf);
@@ -142,10 +149,10 @@ export class KanbanView extends TextFileView {
 
   private persist(): void { this.requestSave(); this.render(); }
 
-  private async moveCard(card: KanbanCard, fromCol: KanbanColumn, toCol: KanbanColumn): Promise<void> {
-    const idx = fromCol.cards.findIndex((c) => c.id === card.id);
-    if (idx === -1) return;
-    fromCol.cards.splice(idx, 1);
+  private async moveCard(card: KanbanCard, fromCol: KanbanColumn, toCol: KanbanColumn, toIndex?: number): Promise<void> {
+    const fromIdx = fromCol.cards.findIndex((c) => c.id === card.id);
+    if (fromIdx === -1) return;
+    fromCol.cards.splice(fromIdx, 1);
 
     if (fromCol.isDone && card.labelIds?.length) {
       await this.plugin.updateSkillScores(card.labelIds, -1);
@@ -157,7 +164,8 @@ export class KanbanView extends TextFileView {
       delete card.completedAt;
     }
 
-    toCol.cards.push(card);
+    const insertAt = toIndex !== undefined ? Math.min(toIndex, toCol.cards.length) : toCol.cards.length;
+    toCol.cards.splice(insertAt, 0, card);
     this.persist();
     void this.plugin.refreshAllDoneView();
   }
@@ -182,7 +190,40 @@ export class KanbanView extends TextFileView {
     });
 
     const board = el.createEl("div", { cls: "kanban-board" });
-    this.boardData.columns.forEach((col) => this.renderColumn(board, col));
+
+    this.boardData.columns.forEach((col, colIdx) => {
+      // Drop zone gap before each column (for column reordering)
+      const dropGap = board.createEl("div", { cls: "kanban-col-gap" });
+      dropGap.dataset["index"] = String(colIdx);
+      dropGap.addEventListener("dragover", (e) => {
+        if (!this.draggedCol) return;
+        e.preventDefault();
+        dropGap.addClass("col-gap-active");
+      });
+      dropGap.addEventListener("dragleave", () => dropGap.removeClass("col-gap-active"));
+      dropGap.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropGap.removeClass("col-gap-active");
+        this.dropColumnAt(colIdx);
+      });
+
+      this.renderColumn(board, col);
+    });
+
+    // Final drop gap after all columns
+    const lastGap = board.createEl("div", { cls: "kanban-col-gap" });
+    lastGap.dataset["index"] = String(this.boardData.columns.length);
+    lastGap.addEventListener("dragover", (e) => {
+      if (!this.draggedCol) return;
+      e.preventDefault();
+      lastGap.addClass("col-gap-active");
+    });
+    lastGap.addEventListener("dragleave", () => lastGap.removeClass("col-gap-active"));
+    lastGap.addEventListener("drop", (e) => {
+      e.preventDefault();
+      lastGap.removeClass("col-gap-active");
+      this.dropColumnAt(this.boardData.columns.length);
+    });
 
     const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: "Add column" } });
     setIcon(addColBtn, "plus");
@@ -194,6 +235,18 @@ export class KanbanView extends TextFileView {
     });
   }
 
+  private dropColumnAt(targetIndex: number): void {
+    if (!this.draggedCol) return;
+    const col = this.draggedCol;
+    this.draggedCol = null;
+    const fromIdx = this.boardData.columns.findIndex((c) => c.id === col.id);
+    if (fromIdx === -1) return;
+    this.boardData.columns.splice(fromIdx, 1);
+    const insertAt = targetIndex > fromIdx ? targetIndex - 1 : targetIndex;
+    this.boardData.columns.splice(insertAt, 0, col);
+    this.persist();
+  }
+
   private renderColumn(board: HTMLElement, col: KanbanColumn) {
     const now = Date.now();
     const visibleCards = col.isDone
@@ -202,7 +255,24 @@ export class KanbanView extends TextFileView {
     const hiddenCount = col.isDone ? col.cards.length - visibleCards.length : 0;
 
     const colEl = board.createEl("div", { cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
-    const hdr = colEl.createEl("div", { cls: "kanban-col-hdr" });
+    const hdr = colEl.createEl("div", { cls: "kanban-col-hdr", attr: { draggable: "true" } });
+
+    // Column drag handle events
+    hdr.addEventListener("dragstart", (e) => {
+      this.draggedCol = col;
+      colEl.addClass("col-dragging");
+      e.dataTransfer?.setData("text/plain", col.id);
+      e.stopPropagation();
+    });
+    hdr.addEventListener("dragend", () => {
+      this.draggedCol = null;
+      colEl.removeClass("col-dragging");
+      this.contentEl.querySelectorAll(".col-gap-active").forEach((n) => n.removeClass("col-gap-active"));
+    });
+
+    const dragHandle = hdr.createEl("span", { cls: "kanban-col-drag-handle", attr: { title: "Drag to reorder" } });
+    setIcon(dragHandle, "grip-vertical");
+
     const accent = hdr.createEl("span", { cls: "kanban-col-accent" });
     accent.style.background = col.color ?? "#6366f1";
 
@@ -256,18 +326,38 @@ export class KanbanView extends TextFileView {
     });
 
     const cardsEl = colEl.createEl("div", { cls: "kanban-cards" });
-    cardsEl.addEventListener("dragover", (e) => { e.preventDefault(); colEl.addClass("drag-over"); });
-    cardsEl.addEventListener("dragleave", (e) => { if (!colEl.contains(e.relatedTarget as Node)) colEl.removeClass("drag-over"); });
+
+    // Cards container drop: used when dragging a card onto an empty column or below all cards
+    cardsEl.addEventListener("dragover", (e) => {
+      if (this.draggedCol || !this.draggedCard) return;
+      e.preventDefault();
+      // Only highlight the column if not hovering over a specific card
+      if (!(e.target as HTMLElement).closest(".kanban-card")) {
+        colEl.addClass("drag-over");
+        this.cardDropTarget = { col, index: visibleCards.length };
+      }
+    });
+    cardsEl.addEventListener("dragleave", (e) => {
+      if (!colEl.contains(e.relatedTarget as Node)) {
+        colEl.removeClass("drag-over");
+      }
+    });
     cardsEl.addEventListener("drop", (e) => {
-      e.preventDefault(); colEl.removeClass("drag-over");
+      e.preventDefault();
+      colEl.removeClass("drag-over");
       if (!this.draggedCard) return;
       const { card, sourceCol } = this.draggedCard;
-      if (sourceCol.id === col.id) return;
       this.draggedCard = null;
-      void this.moveCard(card, sourceCol, col);
+      const target = this.cardDropTarget;
+      this.cardDropTarget = null;
+      if (target) {
+        void this.moveCard(card, sourceCol, target.col, target.index);
+      } else if (sourceCol.id !== col.id) {
+        void this.moveCard(card, sourceCol, col);
+      }
     });
 
-    visibleCards.forEach((card) => this.renderCard(cardsEl, card, col));
+    visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards.length));
 
     if (hiddenCount > 0) {
       const archivedNote = cardsEl.createEl("div", { cls: "kanban-archived-note" });
@@ -307,18 +397,57 @@ export class KanbanView extends TextFileView {
     void this.plugin.refreshAllDoneView();
   }
 
-  private renderCard(container: HTMLElement, card: KanbanCard, col: KanbanColumn) {
+  private renderCard(container: HTMLElement, card: KanbanCard, col: KanbanColumn, cardIdx: number, _totalVisible: number) {
     const el = container.createEl("div", { cls: "kanban-card", attr: { draggable: "true" } });
 
     el.addEventListener("dragstart", (e) => {
+      if (this.draggedCol) return; // column drag takes priority
       this.draggedCard = { card, sourceCol: col };
       el.addClass("dragging");
       e.dataTransfer?.setData("text/plain", card.id);
+      e.stopPropagation();
     });
     el.addEventListener("dragend", () => {
       el.removeClass("dragging");
       this.draggedCard = null;
-      document.querySelectorAll(".drag-over").forEach((n) => n.removeClass("drag-over"));
+      this.cardDropTarget = null;
+      document.querySelectorAll(".card-drop-before, .card-drop-after, .drag-over").forEach((n) => {
+        n.removeClass("card-drop-before");
+        n.removeClass("card-drop-after");
+        n.removeClass("drag-over");
+      });
+    });
+
+    // Per-card dragover: determine insert position from cursor
+    el.addEventListener("dragover", (e) => {
+      if (!this.draggedCard || this.draggedCol) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const rect = el.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const isBefore = e.clientY < midY;
+
+      // Clear indicators on all cards first
+      container.querySelectorAll(".card-drop-before, .card-drop-after").forEach((n) => {
+        n.removeClass("card-drop-before");
+        n.removeClass("card-drop-after");
+      });
+      el.addClass(isBefore ? "card-drop-before" : "card-drop-after");
+
+      // Figure out the target index in the actual (full) cards array
+      // cardIdx is the index within visibleCards; we need index in col.cards
+      const visibleCard = col.isDone
+        ? col.cards.filter((c) => !c.completedAt || Date.now() - (c.completedAt ?? 0) < ONE_WEEK_MS)
+        : col.cards;
+      const targetVisible = isBefore ? cardIdx : cardIdx + 1;
+      // Map visible index back to full cards index
+      const targetCard = visibleCard[targetVisible];
+      const targetIdx = targetCard ? col.cards.indexOf(targetCard) : col.cards.length;
+
+      this.cardDropTarget = { col, index: targetIdx };
+      // Also clear column drag-over highlight
+      container.closest(".kanban-col")?.removeClass("drag-over");
     });
 
     const body = el.createEl("div", { cls: "kanban-card-body" });
