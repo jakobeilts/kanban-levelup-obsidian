@@ -61,6 +61,12 @@ function wrapText(text, maxLen) {
 function escSvg(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs))
+    el.setAttribute(k, v);
+  return el;
+}
 var ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
 var DEFAULT_SETTINGS = {
   labels: [
@@ -75,7 +81,7 @@ function defaultBoard() {
   return {
     columns: [
       { id: generateId(), name: "Backlog", cards: [], color: "#6366f1" },
-      { id: generateId(), name: "In Progress", cards: [], color: "#f59e0b" },
+      { id: generateId(), name: "In progress", cards: [], color: "#f59e0b" },
       { id: generateId(), name: "Done", cards: [], color: "#10b981", isDone: true }
     ]
   };
@@ -93,7 +99,7 @@ var KanbanView = class extends import_obsidian.TextFileView {
   }
   getDisplayText() {
     var _a, _b;
-    return (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "Kanban Board";
+    return (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "Kanban board";
   }
   getIcon() {
     return "layout-dashboard";
@@ -113,7 +119,7 @@ var KanbanView = class extends import_obsidian.TextFileView {
   clear() {
     this.boardData = defaultBoard();
   }
-  async persist() {
+  persist() {
     this.requestSave();
     this.render();
   }
@@ -134,8 +140,8 @@ var KanbanView = class extends import_obsidian.TextFileView {
       delete card.completedAt;
     }
     toCol.cards.push(card);
-    await this.persist();
-    this.plugin.refreshAllDoneView();
+    this.persist();
+    void this.plugin.refreshAllDoneView();
   }
   render() {
     var _a, _b;
@@ -145,26 +151,26 @@ var KanbanView = class extends import_obsidian.TextFileView {
     const hdr = el.createEl("div", { cls: "kanban-header" });
     hdr.createEl("span", { cls: "kanban-header-title", text: (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "Board" });
     const renameBtn = hdr.createEl("button", { cls: "kanban-rename-btn", attr: { title: "Rename board" } });
-    renameBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+    (0, import_obsidian.setIcon)(renameBtn, "pencil");
     renameBtn.addEventListener("click", () => {
       if (!this.file)
         return;
-      new InputModal(this.app, "Rename board", this.file.basename, async (val) => {
+      new InputModal(this.app, "Rename board", this.file.basename, (val) => {
         var _a2;
         if (this.file) {
           const newPath = ((_a2 = this.file.parent) == null ? void 0 : _a2.path) ? `${this.file.parent.path}/${val}.kanban` : `${val}.kanban`;
-          await this.app.fileManager.renameFile(this.file, newPath);
+          void this.app.fileManager.renameFile(this.file, newPath);
         }
       }).open();
     });
     const board = el.createEl("div", { cls: "kanban-board" });
     this.boardData.columns.forEach((col) => this.renderColumn(board, col));
     const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: "Add column" } });
-    addColBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+    (0, import_obsidian.setIcon)(addColBtn, "plus");
     addColBtn.addEventListener("click", () => {
-      new ColumnModal(this.app, { name: "New Column", isDone: false }, async ({ name, isDone }) => {
+      new ColumnModal(this.app, { name: "New column", isDone: false }, ({ name, isDone }) => {
         this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
-        await this.persist();
+        this.persist();
       }).open();
     });
   }
@@ -179,53 +185,53 @@ var KanbanView = class extends import_obsidian.TextFileView {
     accent.style.background = (_a = col.color) != null ? _a : "#6366f1";
     const titleEl = hdr.createEl("span", { cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
-      const doneTag = hdr.createEl("span", { cls: "kanban-done-tag", text: "done", attr: { title: "This is the Done column" } });
+      hdr.createEl("span", { cls: "kanban-done-tag", text: "done", attr: { title: "This is the done column" } });
     }
     titleEl.addEventListener("dblclick", () => {
       var _a2;
-      new ColumnModal(this.app, { name: col.name, isDone: (_a2 = col.isDone) != null ? _a2 : false }, async ({ name, isDone }) => {
-        var _a3, _b2;
+      new ColumnModal(this.app, { name: col.name, isDone: (_a2 = col.isDone) != null ? _a2 : false }, ({ name, isDone }) => {
         const wasInDone = col.isDone;
         const becomingDone = isDone && !wasInDone;
         const leavingDone = !isDone && wasInDone;
-        if (leavingDone) {
-          for (const card of col.cards) {
-            if ((_a3 = card.labelIds) == null ? void 0 : _a3.length)
-              await this.plugin.updateSkillScores(card.labelIds, -1);
-            delete card.completedAt;
+        void (async () => {
+          var _a3, _b2;
+          if (leavingDone) {
+            for (const card of col.cards) {
+              if ((_a3 = card.labelIds) == null ? void 0 : _a3.length)
+                await this.plugin.updateSkillScores(card.labelIds, -1);
+              delete card.completedAt;
+            }
           }
-        }
-        if (becomingDone) {
-          for (const card of col.cards) {
-            if (!card.completedAt)
-              card.completedAt = Date.now();
-            if ((_b2 = card.labelIds) == null ? void 0 : _b2.length)
-              await this.plugin.updateSkillScores(card.labelIds, 1);
+          if (becomingDone) {
+            for (const card of col.cards) {
+              if (!card.completedAt)
+                card.completedAt = Date.now();
+              if ((_b2 = card.labelIds) == null ? void 0 : _b2.length)
+                await this.plugin.updateSkillScores(card.labelIds, 1);
+            }
           }
-        }
-        col.name = name;
-        col.isDone = isDone;
-        await this.persist();
-        this.plugin.refreshAllDoneView();
+          col.name = name;
+          col.isDone = isDone;
+          this.persist();
+          void this.plugin.refreshAllDoneView();
+        })();
       }).open();
     });
     const badge = hdr.createEl("span", { cls: "kanban-col-badge", text: String(col.cards.length) });
     badge.style.background = (_b = col.color) != null ? _b : "#6366f1";
-    const del = hdr.createEl("button", { cls: "kb-icon-btn", attr: { title: "Delete column" } });
-    del.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
-    del.addEventListener("click", async () => {
-      var _a2;
-      if (col.cards.length > 0 && !confirm(`Delete "${col.name}" with ${col.cards.length} card(s)?`))
-        return;
-      if (col.isDone) {
-        for (const card of col.cards) {
-          if ((_a2 = card.labelIds) == null ? void 0 : _a2.length)
-            await this.plugin.updateSkillScores(card.labelIds, -1);
-        }
+    const delColBtn = hdr.createEl("button", { cls: "kb-icon-btn", attr: { title: "Delete column" } });
+    (0, import_obsidian.setIcon)(delColBtn, "trash-2");
+    delColBtn.addEventListener("click", () => {
+      if (col.cards.length > 0) {
+        new ConfirmModal(
+          this.app,
+          `Delete "${col.name}"?`,
+          `This will permanently delete ${col.cards.length} card(s).`,
+          () => void this.deleteColumn(col)
+        ).open();
+      } else {
+        void this.deleteColumn(col);
       }
-      this.boardData.columns = this.boardData.columns.filter((c) => c.id !== col.id);
-      await this.persist();
-      this.plugin.refreshAllDoneView();
     });
     const cardsEl = colEl.createEl("div", { cls: "kanban-cards" });
     cardsEl.addEventListener("dragover", (e) => {
@@ -236,7 +242,7 @@ var KanbanView = class extends import_obsidian.TextFileView {
       if (!colEl.contains(e.relatedTarget))
         colEl.removeClass("drag-over");
     });
-    cardsEl.addEventListener("drop", async (e) => {
+    cardsEl.addEventListener("drop", (e) => {
       e.preventDefault();
       colEl.removeClass("drag-over");
       if (!this.draggedCard)
@@ -245,28 +251,46 @@ var KanbanView = class extends import_obsidian.TextFileView {
       if (sourceCol.id === col.id)
         return;
       this.draggedCard = null;
-      await this.moveCard(card, sourceCol, col);
+      void this.moveCard(card, sourceCol, col);
     });
     visibleCards.forEach((card) => this.renderCard(cardsEl, card, col));
     if (hiddenCount > 0) {
       const archivedNote = cardsEl.createEl("div", { cls: "kanban-archived-note" });
-      archivedNote.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg> ${hiddenCount} completed item${hiddenCount > 1 ? "s" : ""} archived`;
+      const archiveIcon = archivedNote.createEl("span");
+      (0, import_obsidian.setIcon)(archiveIcon, "archive");
+      archivedNote.createEl("span", { text: ` ${hiddenCount} completed item${hiddenCount > 1 ? "s" : ""} archived` });
     }
     const addBtn = colEl.createEl("button", { cls: "kanban-add-card-btn" });
-    addBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span>Add card</span>`;
+    const plusIcon = addBtn.createEl("span");
+    (0, import_obsidian.setIcon)(plusIcon, "plus");
+    addBtn.createEl("span", { text: "Add card" });
     addBtn.addEventListener("click", () => {
-      new CardModal(this.app, this.plugin.settings.labels, null, async (title, desc, labelIds) => {
-        const card = { id: generateId(), title, description: desc, labelIds, createdAt: Date.now() };
-        if (col.isDone) {
-          card.completedAt = Date.now();
-          if (labelIds.length)
-            await this.plugin.updateSkillScores(labelIds, 1);
-        }
-        col.cards.push(card);
-        await this.persist();
-        this.plugin.refreshAllDoneView();
+      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds) => {
+        void (async () => {
+          const card = { id: generateId(), title, description: desc, labelIds, createdAt: Date.now() };
+          if (col.isDone) {
+            card.completedAt = Date.now();
+            if (labelIds.length)
+              await this.plugin.updateSkillScores(labelIds, 1);
+          }
+          col.cards.push(card);
+          this.persist();
+          void this.plugin.refreshAllDoneView();
+        })();
       }).open();
     });
+  }
+  async deleteColumn(col) {
+    var _a;
+    if (col.isDone) {
+      for (const card of col.cards) {
+        if ((_a = card.labelIds) == null ? void 0 : _a.length)
+          await this.plugin.updateSkillScores(card.labelIds, -1);
+      }
+    }
+    this.boardData.columns = this.boardData.columns.filter((c) => c.id !== col.id);
+    this.persist();
+    void this.plugin.refreshAllDoneView();
   }
   renderCard(container, card, col) {
     const el = container.createEl("div", { cls: "kanban-card", attr: { draggable: "true" } });
@@ -301,47 +325,51 @@ var KanbanView = class extends import_obsidian.TextFileView {
     const colIdx = this.boardData.columns.findIndex((c) => c.id === col.id);
     if (colIdx > 0) {
       const lb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: "Move left" } });
-      lb.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>`;
-      lb.addEventListener("click", async (e) => {
+      (0, import_obsidian.setIcon)(lb, "chevron-left");
+      lb.addEventListener("click", (e) => {
         e.stopPropagation();
-        await this.moveCard(card, col, this.boardData.columns[colIdx - 1]);
+        void this.moveCard(card, col, this.boardData.columns[colIdx - 1]);
       });
     }
     if (colIdx < this.boardData.columns.length - 1) {
       const rb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: "Move right" } });
-      rb.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>`;
-      rb.addEventListener("click", async (e) => {
+      (0, import_obsidian.setIcon)(rb, "chevron-right");
+      rb.addEventListener("click", (e) => {
         e.stopPropagation();
-        await this.moveCard(card, col, this.boardData.columns[colIdx + 1]);
+        void this.moveCard(card, col, this.boardData.columns[colIdx + 1]);
       });
     }
     const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: "Edit" } });
-    editBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+    (0, import_obsidian.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, async (title, desc, labelIds) => {
-        var _a;
-        if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
-          await this.plugin.updateSkillScores(card.labelIds, -1);
-        card.title = title;
-        card.description = desc;
-        card.labelIds = labelIds;
-        if (col.isDone && labelIds.length)
-          await this.plugin.updateSkillScores(labelIds, 1);
-        await this.persist();
-        this.plugin.refreshAllDoneView();
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds) => {
+        void (async () => {
+          var _a;
+          if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
+            await this.plugin.updateSkillScores(card.labelIds, -1);
+          card.title = title;
+          card.description = desc;
+          card.labelIds = labelIds;
+          if (col.isDone && labelIds.length)
+            await this.plugin.updateSkillScores(labelIds, 1);
+          this.persist();
+          void this.plugin.refreshAllDoneView();
+        })();
       }).open();
     });
     const delBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: "Delete" } });
-    delBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-    delBtn.addEventListener("click", async (e) => {
-      var _a;
+    (0, import_obsidian.setIcon)(delBtn, "x");
+    delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
-        await this.plugin.updateSkillScores(card.labelIds, -1);
-      col.cards = col.cards.filter((c) => c.id !== card.id);
-      await this.persist();
-      this.plugin.refreshAllDoneView();
+      void (async () => {
+        var _a;
+        if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
+          await this.plugin.updateSkillScores(card.labelIds, -1);
+        col.cards = col.cards.filter((c) => c.id !== card.id);
+        this.persist();
+        void this.plugin.refreshAllDoneView();
+      })();
     });
   }
 };
@@ -355,7 +383,7 @@ var AllDoneTodosView = class extends import_obsidian.ItemView {
     return ALL_DONE_VIEW_TYPE;
   }
   getDisplayText() {
-    return "All Done Todos";
+    return "All done todos";
   }
   getIcon() {
     return "check-square";
@@ -366,11 +394,11 @@ var AllDoneTodosView = class extends import_obsidian.ItemView {
   async onClose() {
   }
   async render() {
-    var _a;
+    var _a, _b;
     const el = this.contentEl;
     el.empty();
     el.addClass("kanban-done-root");
-    el.createEl("h2", { cls: "kanban-done-title", text: "All Done Todos" });
+    el.createEl("h2", { cls: "kanban-done-title", text: "All done todos" });
     const entries = [];
     const files = this.app.vault.getFiles().filter((f) => f.extension === "kanban");
     for (const file of files) {
@@ -383,19 +411,14 @@ var AllDoneTodosView = class extends import_obsidian.ItemView {
           if (!col.isDone)
             continue;
           for (const card of col.cards) {
-            entries.push({
-              card,
-              boardName: file.basename,
-              columnName: col.name,
-              completedAt: (_a = card.completedAt) != null ? _a : card.createdAt
-            });
+            entries.push({ card, boardName: file.basename, completedAt: (_a = card.completedAt) != null ? _a : card.createdAt });
           }
         }
       } catch (e) {
       }
     }
     if (entries.length === 0) {
-      el.createEl("div", { cls: "kanban-done-empty", text: "No completed todos yet. Mark a column as 'Done' on your board and complete some tasks!" });
+      el.createEl("div", { cls: "kanban-done-empty", text: "No completed todos yet. Mark a column as 'done' on your board and complete some tasks!" });
       return;
     }
     entries.sort((a, b) => b.completedAt - a.completedAt);
@@ -404,7 +427,7 @@ var AllDoneTodosView = class extends import_obsidian.ItemView {
       const dateKey = new Date(entry.completedAt).toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
       if (!groups.has(dateKey))
         groups.set(dateKey, []);
-      groups.get(dateKey).push(entry);
+      (_b = groups.get(dateKey)) == null ? void 0 : _b.push(entry);
     }
     el.createEl("div", { cls: "kanban-done-count", text: `${entries.length} completed todo${entries.length !== 1 ? "s" : ""} across ${files.length} board${files.length !== 1 ? "s" : ""}` });
     for (const [dateKey, dayEntries] of groups) {
@@ -413,24 +436,21 @@ var AllDoneTodosView = class extends import_obsidian.ItemView {
       for (const entry of dayEntries) {
         const row = section.createEl("div", { cls: "kanban-done-row" });
         const check = row.createEl("span", { cls: "kanban-done-check" });
-        check.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`;
+        (0, import_obsidian.setIcon)(check, "check");
         const main = row.createEl("div", { cls: "kanban-done-main" });
         main.createEl("span", { cls: "kanban-done-card-title", text: entry.card.title });
-        if (entry.card.description) {
+        if (entry.card.description)
           main.createEl("span", { cls: "kanban-done-card-desc", text: entry.card.description });
-        }
         const meta = row.createEl("div", { cls: "kanban-done-meta" });
-        const cardLabels = this.plugin.settings.labels.filter((l) => {
+        this.plugin.settings.labels.filter((l) => {
           var _a2;
           return (_a2 = entry.card.labelIds) == null ? void 0 : _a2.includes(l.id);
-        });
-        cardLabels.forEach((l) => {
+        }).forEach((l) => {
           const tag = meta.createEl("span", { cls: "kanban-label-tag", text: l.name });
           tag.style.setProperty("--lc", l.color);
         });
         meta.createEl("span", { cls: "kanban-done-board", text: entry.boardName });
-        const time = new Date(entry.completedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-        meta.createEl("span", { cls: "kanban-done-time", text: time });
+        meta.createEl("span", { cls: "kanban-done-time", text: new Date(entry.completedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) });
       }
     }
   }
@@ -448,7 +468,7 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
     return SKILL_CHART_VIEW_TYPE;
   }
   getDisplayText() {
-    return "Skill Chart";
+    return "Skill chart";
   }
   getIcon() {
     return "activity";
@@ -484,7 +504,7 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
     el.addClass("kanban-skill-root");
     const { labels, skillData } = this.plugin.settings;
     const { scores } = skillData;
-    el.createEl("h2", { cls: "kanban-skill-title", text: "Skill Chart" });
+    el.createEl("h2", { cls: "kanban-skill-title", text: "Skill chart" });
     const rangeSection = el.createEl("div", { cls: "kanban-skill-range" });
     const rangeHeader = rangeSection.createEl("div", { cls: "kanban-skill-range-hdr" });
     rangeHeader.createEl("span", { cls: "kanban-skill-range-label", text: "Compare with period" });
@@ -516,20 +536,22 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
       dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "to" });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
       fromInput.addEventListener("change", () => {
-        if (fromInput.value) {
-          this.compareFrom = fromInput.value;
+        const v = fromInput.value;
+        if (v) {
+          this.compareFrom = v;
           this.render();
         }
       });
       toInput.addEventListener("change", () => {
-        if (toInput.value) {
-          this.compareTo = toInput.value;
+        const v = toInput.value;
+        if (v) {
+          this.compareTo = v;
           this.render();
         }
       });
     }
     if (labels.length === 0) {
-      el.createEl("div", { cls: "kanban-skill-empty", text: "No labels defined. Add labels in the plugin settings to use the Skill Chart." });
+      el.createEl("div", { cls: "kanban-skill-empty", text: "No labels defined. Add labels in the plugin settings to use the skill chart." });
       return;
     }
     let compareScores = null;
@@ -555,7 +577,7 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
     const rawMax = Math.max(...allVals, ...cmpVals, 1);
     const scale = rawMax <= 5 ? 5 : rawMax <= 10 ? 10 : Math.ceil(rawMax / 5) * 5;
     const chartWrap = el.createEl("div", { cls: "kanban-skill-chart-wrap" });
-    chartWrap.innerHTML = this.buildRadar(labels, scores, compareScores, scale);
+    this.appendRadar(chartWrap, labels, scores, compareScores, scale);
     if (compareScores && compareLabel) {
       const legend = el.createEl("div", { cls: "kanban-skill-legend" });
       const cur = legend.createEl("div", { cls: "kanban-skill-legend-item" });
@@ -590,102 +612,103 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
       totalRow.createEl("span", { cls: `kanban-skill-stat-delta ${totalDelta > 0 ? "pos" : "neg"}`, text: totalDelta > 0 ? ` +${totalDelta}` : ` ${totalDelta}` });
     }
   }
-  buildRadar(labels, scores, compareScores, scale) {
+  appendRadar(container, labels, scores, compareScores, scale) {
     const N = labels.length;
     const size = 300;
     const cx = size / 2, cy = size / 2;
     const maxR = 90;
     const angles = labels.map((_, i) => 2 * Math.PI * i / N - Math.PI / 2);
-    const pt = (a, r) => `${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`;
-    const ptObj = (a, r) => ({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
-    const charWidth = 6.5;
-    const lineH = 14;
-    const labelPad = 24;
-    const maxLabelLen = 12;
-    const padSides = { top: 32, right: 32, bottom: 32, left: 32 };
+    const ptX = (a, r) => (cx + r * Math.cos(a)).toFixed(2);
+    const ptY = (a, r) => (cy + r * Math.sin(a)).toFixed(2);
+    const pts = (a, r) => `${ptX(a, r)},${ptY(a, r)}`;
+    const charWidth = 6.5, lineH = 14, labelPad = 24, maxLabelLen = 12;
+    const pad = { top: 32, right: 32, bottom: 32, left: 32 };
     labels.forEach((l, i) => {
       const lines = wrapText(l.name, maxLabelLen);
       const textW = Math.max(...lines.map((ln) => ln.length)) * charWidth;
       const textH = lines.length * lineH;
-      const lp = ptObj(angles[i], maxR + labelPad);
-      const anchor = Math.abs(lp.x - cx) < 12 ? "middle" : lp.x < cx ? "end" : "start";
+      const lx = cx + (maxR + labelPad) * Math.cos(angles[i]);
+      const ly = cy + (maxR + labelPad) * Math.sin(angles[i]);
+      const anchor = Math.abs(lx - cx) < 12 ? "middle" : lx < cx ? "end" : "start";
       if (anchor === "start") {
-        const re = lp.x + textW - size;
-        if (re > padSides.right)
-          padSides.right = re + 8;
+        const re = lx + textW - size;
+        if (re > pad.right)
+          pad.right = re + 8;
       } else if (anchor === "end") {
-        const le = -lp.x + textW;
-        if (le > padSides.left)
-          padSides.left = le + 8;
+        const le = -lx + textW;
+        if (le > pad.left)
+          pad.left = le + 8;
       } else {
         const hw = textW / 2;
-        const re = lp.x + hw - size;
-        const le = -lp.x + hw;
-        if (re > padSides.right)
-          padSides.right = re + 8;
-        if (le > padSides.left)
-          padSides.left = le + 8;
+        if (lx + hw - size > pad.right)
+          pad.right = lx + hw - size + 8;
+        if (-lx + hw > pad.left)
+          pad.left = -lx + hw + 8;
       }
-      const topEdge = -lp.y + textH;
-      const botEdge = lp.y + textH - size;
-      if (topEdge > padSides.top)
-        padSides.top = topEdge + 8;
-      if (botEdge > padSides.bottom)
-        padSides.bottom = botEdge + 8;
+      if (-ly + textH > pad.top)
+        pad.top = -ly + textH + 8;
+      if (ly + textH - size > pad.bottom)
+        pad.bottom = ly + textH - size + 8;
     });
-    let grid = "";
+    const vbX = -pad.left, vbY = -pad.top;
+    const vbW = size + pad.left + pad.right, vbH = size + pad.top + pad.bottom;
+    const svg = svgEl("svg", {
+      viewBox: `${vbX.toFixed(0)} ${vbY.toFixed(0)} ${vbW.toFixed(0)} ${vbH.toFixed(0)}`,
+      style: "width:100%;max-width:420px;display:block;margin:0 auto"
+    });
     for (let lvl = 1; lvl <= 4; lvl++) {
       const r = lvl / 4 * maxR;
-      grid += `<polygon points="${angles.map((a) => pt(a, r)).join(" ")}" fill="none" stroke="currentColor" stroke-opacity="0.07" stroke-width="1"/>`;
+      const ring = svgEl("polygon", { points: angles.map((a) => pts(a, r)).join(" "), fill: "none", stroke: "currentColor", "stroke-opacity": "0.07", "stroke-width": "1" });
+      svg.appendChild(ring);
       const val = Math.round(lvl / 4 * scale);
-      const top = ptObj(angles[0], r);
-      grid += `<text x="${(top.x + 3).toFixed(1)}" y="${(top.y - 3).toFixed(1)}" font-size="8" opacity="0.3" fill="currentColor">${val}</text>`;
+      const t = svgEl("text", { x: (cx + r * Math.cos(angles[0]) + 3).toFixed(1), y: (cy + r * Math.sin(angles[0]) - 3).toFixed(1), "font-size": "8", opacity: "0.3", fill: "currentColor" });
+      t.textContent = String(val);
+      svg.appendChild(t);
     }
-    const axes = angles.map((a) => {
-      const p = ptObj(a, maxR);
-      return `<line x1="${cx}" y1="${cy}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" stroke="currentColor" stroke-opacity="0.1" stroke-width="1"/>`;
-    }).join("");
-    const dataPts = labels.map((l, i) => {
-      var _a;
-      const r = Math.min((_a = scores[l.id]) != null ? _a : 0, scale) / scale * maxR;
-      return pt(angles[i], r);
-    }).join(" ");
-    const dataDots = labels.map((l, i) => {
-      var _a;
-      const r = Math.min((_a = scores[l.id]) != null ? _a : 0, scale) / scale * maxR;
-      return ptObj(angles[i], r);
+    angles.forEach((a) => {
+      svg.appendChild(svgEl("line", { x1: String(cx), y1: String(cy), x2: ptX(a, maxR), y2: ptY(a, maxR), stroke: "currentColor", "stroke-opacity": "0.1", "stroke-width": "1" }));
     });
-    let cmpPoly = "";
     if (compareScores) {
       const cPts = labels.map((l, i) => {
         var _a;
         const r = Math.min((_a = compareScores[l.id]) != null ? _a : 0, scale) / scale * maxR;
-        return pt(angles[i], r);
+        return pts(angles[i], r);
       }).join(" ");
-      cmpPoly = `<polygon points="${cPts}" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+      svg.appendChild(svgEl("polygon", { points: cPts, fill: "currentColor", "fill-opacity": "0.05", stroke: "currentColor", "stroke-opacity": "0.3", "stroke-width": "1.5", "stroke-dasharray": "4,3" }));
     }
-    const dataPoly = `<polygon points="${dataPts}" fill="var(--interactive-accent)" fill-opacity="0.15" stroke="var(--interactive-accent)" stroke-width="2"/>`;
-    const dots = dataDots.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="var(--interactive-accent)" stroke="var(--background-primary)" stroke-width="1.5"/>`).join("");
-    const axisLabels = labels.map((l, i) => {
+    const dataPts = labels.map((l, i) => {
+      var _a;
+      const r = Math.min((_a = scores[l.id]) != null ? _a : 0, scale) / scale * maxR;
+      return pts(angles[i], r);
+    }).join(" ");
+    svg.appendChild(svgEl("polygon", { points: dataPts, fill: "var(--interactive-accent)", "fill-opacity": "0.15", stroke: "var(--interactive-accent)", "stroke-width": "2" }));
+    labels.forEach((l, i) => {
+      var _a;
+      const r = Math.min((_a = scores[l.id]) != null ? _a : 0, scale) / scale * maxR;
+      svg.appendChild(svgEl("circle", { cx: ptX(angles[i], r), cy: ptY(angles[i], r), r: "3.5", fill: "var(--interactive-accent)", stroke: "var(--background-primary)", "stroke-width": "1.5" }));
+    });
+    labels.forEach((l, i) => {
       var _a;
       const a = angles[i];
-      const lp = ptObj(a, maxR + labelPad - 4);
-      const tp = ptObj(a, maxR + labelPad + 6);
-      const anchor = Math.abs(lp.x - cx) < 12 ? "middle" : lp.x < cx ? "end" : "start";
+      const lpX = cx + (maxR + labelPad - 4) * Math.cos(a);
+      const lpY = cy + (maxR + labelPad - 4) * Math.sin(a);
+      const tpX = cx + (maxR + labelPad + 6) * Math.cos(a);
+      const tpY = cy + (maxR + labelPad + 6) * Math.sin(a);
+      const anchor = Math.abs(lpX - cx) < 12 ? "middle" : lpX < cx ? "end" : "start";
+      svg.appendChild(svgEl("circle", { cx: lpX.toFixed(1), cy: (lpY - 2).toFixed(1), r: "3", fill: l.color }));
       const lines = wrapText(l.name, maxLabelLen);
-      let nameText = `<text text-anchor="${anchor}" font-size="11" font-weight="600" fill="currentColor">`;
+      const nameEl = svgEl("text", { "text-anchor": anchor, "font-size": "11", "font-weight": "600", fill: "currentColor" });
       lines.forEach((line, li) => {
-        nameText += `<tspan x="${tp.x.toFixed(1)}" y="${(tp.y - 4 + li * lineH).toFixed(1)}">${escSvg(line)}</tspan>`;
+        const tspan = svgEl("tspan", { x: tpX.toFixed(1), y: (tpY - 4 + li * lineH).toFixed(1) });
+        tspan.textContent = escSvg(line);
+        nameEl.appendChild(tspan);
       });
-      nameText += `</text>`;
-      const scoreY = tp.y - 4 + lines.length * lineH + 2;
-      const scoreText = `<text x="${tp.x.toFixed(1)}" y="${scoreY.toFixed(1)}" text-anchor="${anchor}" font-size="10" fill="currentColor" opacity="0.4">${(_a = scores[l.id]) != null ? _a : 0}</text>`;
-      const dot = `<circle cx="${lp.x.toFixed(1)}" cy="${(lp.y - 2).toFixed(1)}" r="3" fill="${l.color}"/>`;
-      return dot + nameText + scoreText;
-    }).join("");
-    const vbX = -padSides.left, vbY = -padSides.top;
-    const vbW = size + padSides.left + padSides.right, vbH = size + padSides.top + padSides.bottom;
-    return `<svg viewBox="${vbX.toFixed(0)} ${vbY.toFixed(0)} ${vbW.toFixed(0)} ${vbH.toFixed(0)}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:420px;display:block;margin:0 auto">${grid}${axes}${cmpPoly}${dataPoly}${dots}${axisLabels}</svg>`;
+      svg.appendChild(nameEl);
+      const scoreEl = svgEl("text", { x: tpX.toFixed(1), y: (tpY - 4 + lines.length * lineH + 2).toFixed(1), "text-anchor": anchor, "font-size": "10", fill: "currentColor", opacity: "0.4" });
+      scoreEl.textContent = String((_a = scores[l.id]) != null ? _a : 0);
+      svg.appendChild(scoreEl);
+    });
+    container.appendChild(svg);
   }
 };
 var InputModal = class extends import_obsidian.Modal {
@@ -723,6 +746,29 @@ var InputModal = class extends import_obsidian.Modal {
     this.contentEl.empty();
   }
 };
+var ConfirmModal = class extends import_obsidian.Modal {
+  constructor(app, title, message, onConfirm) {
+    super(app);
+    this.title = title;
+    this.message = message;
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    const { contentEl: el } = this;
+    el.addClass("kanban-modal");
+    el.createEl("h3", { cls: "kanban-modal-title", text: this.title });
+    el.createEl("p", { cls: "kanban-modal-message", text: this.message });
+    const btns = el.createEl("div", { cls: "kanban-modal-btns" });
+    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
+    btns.createEl("button", { cls: "kb-btn kb-btn-danger", text: "Delete" }).addEventListener("click", () => {
+      this.onConfirm();
+      this.close();
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var ColumnModal = class extends import_obsidian.Modal {
   constructor(app, opts, cb) {
     super(app);
@@ -730,7 +776,6 @@ var ColumnModal = class extends import_obsidian.Modal {
     this.cb = cb;
   }
   onOpen() {
-    var _a;
     const { contentEl: el } = this;
     el.addClass("kanban-modal");
     el.createEl("h3", { cls: "kanban-modal-title", text: "Column settings" });
@@ -739,8 +784,9 @@ var ColumnModal = class extends import_obsidian.Modal {
     nameInput.focus();
     nameInput.select();
     const doneRow = el.createEl("div", { cls: "kanban-modal-done-row" });
-    doneRow.createEl("div", { cls: "kanban-modal-done-info" }).createEl("span", { cls: "kanban-modal-label", text: "Mark as Done column" });
-    (_a = doneRow.querySelector(".kanban-modal-label")) == null ? void 0 : _a.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in Skill Chart & All Done Todos" });
+    const doneInfo = doneRow.createEl("div", { cls: "kanban-modal-done-info" });
+    doneInfo.createEl("span", { cls: "kanban-modal-label", text: "Mark as done column" });
+    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in skill chart & all done todos" });
     const toggleWrap = doneRow.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
     toggleInput.checked = this.opts.isDone;
@@ -837,24 +883,26 @@ var KanbanTodoPlugin = class extends import_obsidian.Plugin {
     this.registerExtensions(["kanban"], KANBAN_VIEW_TYPE);
     this.registerView(SKILL_CHART_VIEW_TYPE, (leaf) => new KanbanSkillChartView(leaf, this));
     this.registerView(ALL_DONE_VIEW_TYPE, (leaf) => new AllDoneTodosView(leaf, this));
-    this.addRibbonIcon("layout-dashboard", "New Kanban Board", () => this.createBoard());
-    this.addRibbonIcon("check-square", "All Done Todos", () => this.openView(ALL_DONE_VIEW_TYPE));
-    this.addRibbonIcon("activity", "Skill Chart", () => this.openView(SKILL_CHART_VIEW_TYPE));
-    this.addCommand({ id: "create-kanban-board", name: "New Kanban Board", callback: () => this.createBoard() });
-    this.addCommand({ id: "open-skill-chart", name: "Open Skill Chart", callback: () => this.openView(SKILL_CHART_VIEW_TYPE) });
-    this.addCommand({ id: "open-all-done", name: "Open All Done Todos", callback: () => this.openView(ALL_DONE_VIEW_TYPE) });
+    this.addRibbonIcon("layout-dashboard", "New Kanban board", () => this.createBoard());
+    this.addRibbonIcon("check-square", "All done todos", () => void this.openView(ALL_DONE_VIEW_TYPE));
+    this.addRibbonIcon("activity", "Skill chart", () => void this.openView(SKILL_CHART_VIEW_TYPE));
+    this.addCommand({ id: "create-kanban-board", name: "New Kanban board", callback: () => this.createBoard() });
+    this.addCommand({ id: "open-skill-chart", name: "Open skill chart", callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
+    this.addCommand({ id: "open-all-done", name: "Open all done todos", callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
     this.addSettingTab(new KanbanSettingTab(this.app, this));
   }
-  async createBoard() {
-    new InputModal(this.app, "New board", "My Board", async (name) => {
+  createBoard() {
+    new InputModal(this.app, "New board", "My board", (name) => {
       const path = `${name}.kanban`;
       if (this.app.vault.getAbstractFileByPath(path)) {
         new import_obsidian.Notice(`"${path}" already exists.`);
         return;
       }
-      const file = await this.app.vault.create(path, JSON.stringify(defaultBoard(), null, 2));
-      const leaf = this.app.workspace.getLeaf(false);
-      await leaf.openFile(file);
+      void (async () => {
+        const file = await this.app.vault.create(path, JSON.stringify(defaultBoard(), null, 2));
+        const leaf = this.app.workspace.getLeaf(false);
+        await leaf.openFile(file);
+      })();
     }).open();
   }
   async openView(type) {
@@ -875,8 +923,10 @@ var KanbanTodoPlugin = class extends import_obsidian.Plugin {
     await this.saveSettings();
     this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => l.view.render());
   }
-  refreshAllDoneView() {
-    this.app.workspace.getLeavesOfType(ALL_DONE_VIEW_TYPE).forEach((l) => l.view.render());
+  async refreshAllDoneView() {
+    for (const l of this.app.workspace.getLeavesOfType(ALL_DONE_VIEW_TYPE)) {
+      await l.view.render();
+    }
   }
   async loadSettings() {
     const loaded = await this.loadData();
@@ -902,19 +952,19 @@ var KanbanSettingTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl: el } = this;
     el.empty();
     el.addClass("kanban-settings");
-    el.createEl("h2", { text: "Kanban Todo Board" });
-    el.createEl("p", { cls: "setting-item-description", text: "Labels are assigned to cards and drive the Skill Chart." });
-    el.createEl("h3", { cls: "kanban-settings-h3", text: "Labels" });
+    new import_obsidian.Setting(el).setName("Kanban Todo Board").setHeading();
+    el.createEl("p", { cls: "setting-item-description", text: "Labels are assigned to cards and drive the skill chart." });
+    new import_obsidian.Setting(el).setName("Labels").setHeading();
     const list = el.createEl("div", { cls: "kanban-settings-labels" });
     this.renderLabels(list);
     new import_obsidian.Setting(el).addButton(
       (b) => b.setButtonText("+ Add label").setCta().onClick(async () => {
-        this.plugin.settings.labels.push({ id: generateId(), name: "New Label", color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
+        this.plugin.settings.labels.push({ id: generateId(), name: "New label", color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
         await this.plugin.saveSettings();
         this.display();
       })
     );
-    el.createEl("h3", { cls: "kanban-settings-h3", text: "Skill Data" });
+    new import_obsidian.Setting(el).setName("Skill data").setHeading();
     new import_obsidian.Setting(el).setName("Reset skill scores").setDesc("Clears all accumulated scores and history.").addButton((b) => b.setButtonText("Reset").setWarning().onClick(async () => {
       this.plugin.settings.skillData = { scores: {}, snapshots: [] };
       await this.plugin.saveSettings();
@@ -926,15 +976,15 @@ var KanbanSettingTab = class extends import_obsidian.PluginSettingTab {
     this.plugin.settings.labels.forEach((label, idx) => {
       const row = container.createEl("div", { cls: "kanban-settings-row" });
       const colorInput = row.createEl("input", { cls: "kanban-settings-color", attr: { type: "color", value: label.color } });
-      colorInput.addEventListener("input", async () => {
+      colorInput.addEventListener("input", () => {
         label.color = colorInput.value;
-        await this.plugin.saveSettings();
-        preview.style.setProperty("--lc", colorInput.value);
+        preview.style.setProperty("--lc", label.color);
+        void this.plugin.saveSettings();
       });
       const nameInput = row.createEl("input", { cls: "kanban-settings-name", attr: { type: "text", value: label.name } });
-      nameInput.addEventListener("change", async () => {
+      nameInput.addEventListener("change", () => {
         label.name = nameInput.value.trim() || label.name;
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
       });
       nameInput.addEventListener("input", () => {
         preview.textContent = nameInput.value || label.name;
@@ -942,10 +992,10 @@ var KanbanSettingTab = class extends import_obsidian.PluginSettingTab {
       const preview = row.createEl("span", { cls: "kanban-label-tag", text: label.name });
       preview.style.setProperty("--lc", label.color);
       const del = row.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: "Remove" } });
-      del.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-      del.addEventListener("click", async () => {
+      (0, import_obsidian.setIcon)(del, "x");
+      del.addEventListener("click", () => {
         this.plugin.settings.labels.splice(idx, 1);
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
         this.display();
       });
     });

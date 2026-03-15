@@ -66,8 +66,10 @@
 .kb-btn:active { opacity: 0.8; }
 .kb-btn-primary { background: var(--interactive-accent); color: var(--text-on-accent); }
 .kb-btn-primary:hover { opacity: 0.9; }
-.kb-btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--background-modifier-border); }
-.kb-btn-ghost:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.kb-btn-danger { background: transparent; color: var(--text-error); border: 1px solid var(--text-error); }
+.kb-btn-danger:hover { background: rgba(239,68,68,0.08); }
+
+.kanban-modal-message { font-size: 13px; color: var(--text-muted); margin: 0 0 4px; line-height: 1.5; }
 
 .kb-icon-btn {
   display: inline-flex;
