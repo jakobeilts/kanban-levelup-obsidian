@@ -91,7 +91,12 @@ var KanbanView = class extends import_obsidian.TextFileView {
   constructor(leaf, plugin) {
     super(leaf);
     this.boardData = defaultBoard();
+    // Card drag state
     this.draggedCard = null;
+    this.cardDropTarget = null;
+    // Column drag state
+    this.draggedCol = null;
+    this.colDropIndex = null;
     this.plugin = plugin;
   }
   getViewType() {
@@ -123,12 +128,12 @@ var KanbanView = class extends import_obsidian.TextFileView {
     this.requestSave();
     this.render();
   }
-  async moveCard(card, fromCol, toCol) {
+  async moveCard(card, fromCol, toCol, toIndex) {
     var _a, _b;
-    const idx = fromCol.cards.findIndex((c) => c.id === card.id);
-    if (idx === -1)
+    const fromIdx = fromCol.cards.findIndex((c) => c.id === card.id);
+    if (fromIdx === -1)
       return;
-    fromCol.cards.splice(idx, 1);
+    fromCol.cards.splice(fromIdx, 1);
     if (fromCol.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length)) {
       await this.plugin.updateSkillScores(card.labelIds, -1);
     }
@@ -139,7 +144,8 @@ var KanbanView = class extends import_obsidian.TextFileView {
     } else {
       delete card.completedAt;
     }
-    toCol.cards.push(card);
+    const insertAt = toIndex !== void 0 ? Math.min(toIndex, toCol.cards.length) : toCol.cards.length;
+    toCol.cards.splice(insertAt, 0, card);
     this.persist();
     void this.plugin.refreshAllDoneView();
   }
@@ -164,7 +170,37 @@ var KanbanView = class extends import_obsidian.TextFileView {
       }).open();
     });
     const board = el.createEl("div", { cls: "kanban-board" });
-    this.boardData.columns.forEach((col) => this.renderColumn(board, col));
+    this.boardData.columns.forEach((col, colIdx) => {
+      const dropGap = board.createEl("div", { cls: "kanban-col-gap" });
+      dropGap.dataset["index"] = String(colIdx);
+      dropGap.addEventListener("dragover", (e) => {
+        if (!this.draggedCol)
+          return;
+        e.preventDefault();
+        dropGap.addClass("col-gap-active");
+      });
+      dropGap.addEventListener("dragleave", () => dropGap.removeClass("col-gap-active"));
+      dropGap.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropGap.removeClass("col-gap-active");
+        this.dropColumnAt(colIdx);
+      });
+      this.renderColumn(board, col);
+    });
+    const lastGap = board.createEl("div", { cls: "kanban-col-gap" });
+    lastGap.dataset["index"] = String(this.boardData.columns.length);
+    lastGap.addEventListener("dragover", (e) => {
+      if (!this.draggedCol)
+        return;
+      e.preventDefault();
+      lastGap.addClass("col-gap-active");
+    });
+    lastGap.addEventListener("dragleave", () => lastGap.removeClass("col-gap-active"));
+    lastGap.addEventListener("drop", (e) => {
+      e.preventDefault();
+      lastGap.removeClass("col-gap-active");
+      this.dropColumnAt(this.boardData.columns.length);
+    });
     const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: "Add column" } });
     (0, import_obsidian.setIcon)(addColBtn, "plus");
     addColBtn.addEventListener("click", () => {
@@ -174,13 +210,40 @@ var KanbanView = class extends import_obsidian.TextFileView {
       }).open();
     });
   }
+  dropColumnAt(targetIndex) {
+    if (!this.draggedCol)
+      return;
+    const col = this.draggedCol;
+    this.draggedCol = null;
+    const fromIdx = this.boardData.columns.findIndex((c) => c.id === col.id);
+    if (fromIdx === -1)
+      return;
+    this.boardData.columns.splice(fromIdx, 1);
+    const insertAt = targetIndex > fromIdx ? targetIndex - 1 : targetIndex;
+    this.boardData.columns.splice(insertAt, 0, col);
+    this.persist();
+  }
   renderColumn(board, col) {
     var _a, _b;
     const now = Date.now();
     const visibleCards = col.isDone ? col.cards.filter((c) => !c.completedAt || now - c.completedAt < ONE_WEEK_MS) : col.cards;
     const hiddenCount = col.isDone ? col.cards.length - visibleCards.length : 0;
     const colEl = board.createEl("div", { cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
-    const hdr = colEl.createEl("div", { cls: "kanban-col-hdr" });
+    const hdr = colEl.createEl("div", { cls: "kanban-col-hdr", attr: { draggable: "true" } });
+    hdr.addEventListener("dragstart", (e) => {
+      var _a2;
+      this.draggedCol = col;
+      colEl.addClass("col-dragging");
+      (_a2 = e.dataTransfer) == null ? void 0 : _a2.setData("text/plain", col.id);
+      e.stopPropagation();
+    });
+    hdr.addEventListener("dragend", () => {
+      this.draggedCol = null;
+      colEl.removeClass("col-dragging");
+      this.contentEl.querySelectorAll(".col-gap-active").forEach((n) => n.removeClass("col-gap-active"));
+    });
+    const dragHandle = hdr.createEl("span", { cls: "kanban-col-drag-handle", attr: { title: "Drag to reorder" } });
+    (0, import_obsidian.setIcon)(dragHandle, "grip-vertical");
     const accent = hdr.createEl("span", { cls: "kanban-col-accent" });
     accent.style.background = (_a = col.color) != null ? _a : "#6366f1";
     const titleEl = hdr.createEl("span", { cls: "kanban-col-title", text: col.name });
@@ -235,12 +298,18 @@ var KanbanView = class extends import_obsidian.TextFileView {
     });
     const cardsEl = colEl.createEl("div", { cls: "kanban-cards" });
     cardsEl.addEventListener("dragover", (e) => {
+      if (this.draggedCol || !this.draggedCard)
+        return;
       e.preventDefault();
-      colEl.addClass("drag-over");
+      if (!e.target.closest(".kanban-card")) {
+        colEl.addClass("drag-over");
+        this.cardDropTarget = { col, index: visibleCards.length };
+      }
     });
     cardsEl.addEventListener("dragleave", (e) => {
-      if (!colEl.contains(e.relatedTarget))
+      if (!colEl.contains(e.relatedTarget)) {
         colEl.removeClass("drag-over");
+      }
     });
     cardsEl.addEventListener("drop", (e) => {
       e.preventDefault();
@@ -248,12 +317,16 @@ var KanbanView = class extends import_obsidian.TextFileView {
       if (!this.draggedCard)
         return;
       const { card, sourceCol } = this.draggedCard;
-      if (sourceCol.id === col.id)
-        return;
       this.draggedCard = null;
-      void this.moveCard(card, sourceCol, col);
+      const target = this.cardDropTarget;
+      this.cardDropTarget = null;
+      if (target) {
+        void this.moveCard(card, sourceCol, target.col, target.index);
+      } else if (sourceCol.id !== col.id) {
+        void this.moveCard(card, sourceCol, col);
+      }
     });
-    visibleCards.forEach((card) => this.renderCard(cardsEl, card, col));
+    visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards.length));
     if (hiddenCount > 0) {
       const archivedNote = cardsEl.createEl("div", { cls: "kanban-archived-note" });
       const archiveIcon = archivedNote.createEl("span");
@@ -292,18 +365,50 @@ var KanbanView = class extends import_obsidian.TextFileView {
     this.persist();
     void this.plugin.refreshAllDoneView();
   }
-  renderCard(container, card, col) {
+  renderCard(container, card, col, cardIdx, _totalVisible) {
     const el = container.createEl("div", { cls: "kanban-card", attr: { draggable: "true" } });
     el.addEventListener("dragstart", (e) => {
       var _a;
+      if (this.draggedCol)
+        return;
       this.draggedCard = { card, sourceCol: col };
       el.addClass("dragging");
       (_a = e.dataTransfer) == null ? void 0 : _a.setData("text/plain", card.id);
+      e.stopPropagation();
     });
     el.addEventListener("dragend", () => {
       el.removeClass("dragging");
       this.draggedCard = null;
-      document.querySelectorAll(".drag-over").forEach((n) => n.removeClass("drag-over"));
+      this.cardDropTarget = null;
+      document.querySelectorAll(".card-drop-before, .card-drop-after, .drag-over").forEach((n) => {
+        n.removeClass("card-drop-before");
+        n.removeClass("card-drop-after");
+        n.removeClass("drag-over");
+      });
+    });
+    el.addEventListener("dragover", (e) => {
+      var _a;
+      if (!this.draggedCard || this.draggedCol)
+        return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = el.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const isBefore = e.clientY < midY;
+      container.querySelectorAll(".card-drop-before, .card-drop-after").forEach((n) => {
+        n.removeClass("card-drop-before");
+        n.removeClass("card-drop-after");
+      });
+      el.addClass(isBefore ? "card-drop-before" : "card-drop-after");
+      const visibleCard = col.isDone ? col.cards.filter((c) => {
+        var _a2;
+        return !c.completedAt || Date.now() - ((_a2 = c.completedAt) != null ? _a2 : 0) < ONE_WEEK_MS;
+      }) : col.cards;
+      const targetVisible = isBefore ? cardIdx : cardIdx + 1;
+      const targetCard = visibleCard[targetVisible];
+      const targetIdx = targetCard ? col.cards.indexOf(targetCard) : col.cards.length;
+      this.cardDropTarget = { col, index: targetIdx };
+      (_a = container.closest(".kanban-col")) == null ? void 0 : _a.removeClass("drag-over");
     });
     const body = el.createEl("div", { cls: "kanban-card-body" });
     body.createEl("div", { cls: "kanban-card-title", text: card.title });
