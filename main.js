@@ -301,7 +301,7 @@ var KanbanView = class extends import_obsidian.TextFileView {
       if (this.draggedCol || !this.draggedCard)
         return;
       e.preventDefault();
-      if (!e.target.closest(".kanban-card")) {
+      if (!(e.target instanceof Element) || !e.target.closest(".kanban-card")) {
         colEl.addClass("drag-over");
         this.cardDropTarget = { col, index: visibleCards.length };
       }
@@ -636,21 +636,19 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
         });
       });
       const dateRow = rangeInputs.createEl("div", { cls: "kanban-skill-date-row" });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "From" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "from" });
       const fromInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareFrom, max: this.compareTo } });
       dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "to" });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
       fromInput.addEventListener("change", () => {
-        const v = fromInput.value;
-        if (v) {
-          this.compareFrom = v;
+        if (fromInput.value) {
+          this.compareFrom = fromInput.value;
           this.render();
         }
       });
       toInput.addEventListener("change", () => {
-        const v = toInput.value;
-        if (v) {
-          this.compareTo = v;
+        if (toInput.value) {
+          this.compareTo = toInput.value;
           this.render();
         }
       });
@@ -832,7 +830,7 @@ var InputModal = class extends import_obsidian.Modal {
     input.select();
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
     ok.addEventListener("click", () => {
       const v = input.value.trim();
       if (v) {
@@ -891,14 +889,14 @@ var ColumnModal = class extends import_obsidian.Modal {
     const doneRow = el.createEl("div", { cls: "kanban-modal-done-row" });
     const doneInfo = doneRow.createEl("div", { cls: "kanban-modal-done-info" });
     doneInfo.createEl("span", { cls: "kanban-modal-label", text: "Mark as done column" });
-    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in skill chart & all done todos" });
+    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in skill chart and all done todos" });
     const toggleWrap = doneRow.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
     toggleInput.checked = this.opts.isDone;
     toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
     ok.addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name)
@@ -1057,22 +1055,21 @@ var KanbanSettingTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl: el } = this;
     el.empty();
     el.addClass("kanban-settings");
-    new import_obsidian.Setting(el).setName("Kanban Todo Board").setHeading();
     el.createEl("p", { cls: "setting-item-description", text: "Labels are assigned to cards and drive the skill chart." });
     new import_obsidian.Setting(el).setName("Labels").setHeading();
     const list = el.createEl("div", { cls: "kanban-settings-labels" });
     this.renderLabels(list);
     new import_obsidian.Setting(el).addButton(
-      (b) => b.setButtonText("+ Add label").setCta().onClick(async () => {
+      (b) => b.setButtonText("Add label").setCta().onClick(() => {
         this.plugin.settings.labels.push({ id: generateId(), name: "New label", color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
         this.display();
       })
     );
     new import_obsidian.Setting(el).setName("Skill data").setHeading();
-    new import_obsidian.Setting(el).setName("Reset skill scores").setDesc("Clears all accumulated scores and history.").addButton((b) => b.setButtonText("Reset").setWarning().onClick(async () => {
+    new import_obsidian.Setting(el).setName("Reset skill scores").setDesc("Clears all accumulated scores and history.").addButton((b) => b.setButtonText("Reset").setWarning().onClick(() => {
       this.plugin.settings.skillData = { scores: {}, snapshots: [] };
-      await this.plugin.saveSettings();
+      void this.plugin.saveSettings();
       new import_obsidian.Notice("Skill scores reset.");
     }));
   }

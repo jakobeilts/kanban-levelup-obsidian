@@ -332,7 +332,7 @@ export class KanbanView extends TextFileView {
       if (this.draggedCol || !this.draggedCard) return;
       e.preventDefault();
       // Only highlight the column if not hovering over a specific card
-      if (!(e.target as HTMLElement).closest(".kanban-card")) {
+      if (!(e.target instanceof Element) || !e.target.closest(".kanban-card")) {
         colEl.addClass("drag-over");
         this.cardDropTarget = { col, index: visibleCards.length };
       }
@@ -654,9 +654,9 @@ export class KanbanSkillChartView extends ItemView {
 
     const toggleWrap = rangeHeader.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
-    (toggleInput as HTMLInputElement).checked = this.compareEnabled;
+    toggleInput.checked = this.compareEnabled;
     toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
-    toggleInput.addEventListener("change", () => { this.compareEnabled = (toggleInput as HTMLInputElement).checked; this.render(); });
+    toggleInput.addEventListener("change", () => { this.compareEnabled = toggleInput.checked; this.render(); });
 
     if (this.compareEnabled) {
       const rangeInputs = rangeSection.createEl("div", { cls: "kanban-skill-range-inputs" });
@@ -674,12 +674,12 @@ export class KanbanSkillChartView extends ItemView {
       });
 
       const dateRow = rangeInputs.createEl("div", { cls: "kanban-skill-date-row" });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "From" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "from" });
       const fromInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareFrom, max: this.compareTo } });
       dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "to" });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
-      fromInput.addEventListener("change", () => { const v = (fromInput as HTMLInputElement).value; if (v) { this.compareFrom = v; this.render(); } });
-      toInput.addEventListener("change", () => { const v = (toInput as HTMLInputElement).value; if (v) { this.compareTo = v; this.render(); } });
+      fromInput.addEventListener("change", () => { if (fromInput.value) { this.compareFrom = fromInput.value; this.render(); } });
+      toInput.addEventListener("change", () => { if (toInput.value) { this.compareTo = toInput.value; this.render(); } });
     }
 
     if (labels.length === 0) {
@@ -860,13 +860,13 @@ class InputModal extends Modal {
     el.addClass("kanban-modal");
     el.createEl("h3", { cls: "kanban-modal-title", text: this.title });
     const input = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.def } });
-    (input as HTMLInputElement).focus();
-    (input as HTMLInputElement).select();
+    input.focus();
+    input.select();
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
-    ok.addEventListener("click", () => { const v = (input as HTMLInputElement).value.trim(); if (v) { this.cb(v); this.close(); } });
-    input.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") ok.click(); if ((e as KeyboardEvent).key === "Escape") this.close(); });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
+    ok.addEventListener("click", () => { const v = input.value.trim(); if (v) { this.cb(v); this.close(); } });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); if (e.key === "Escape") this.close(); });
   }
   onClose() { this.contentEl.empty(); }
 }
@@ -896,29 +896,29 @@ class ColumnModal extends Modal {
 
     el.createEl("label", { cls: "kanban-modal-label", text: "Name" });
     const nameInput = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.opts.name } });
-    (nameInput as HTMLInputElement).focus();
-    (nameInput as HTMLInputElement).select();
+    nameInput.focus();
+    nameInput.select();
 
     const doneRow = el.createEl("div", { cls: "kanban-modal-done-row" });
     const doneInfo = doneRow.createEl("div", { cls: "kanban-modal-done-info" });
     doneInfo.createEl("span", { cls: "kanban-modal-label", text: "Mark as done column" });
-    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in skill chart & all done todos" });
+    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in skill chart and all done todos" });
 
     const toggleWrap = doneRow.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
-    (toggleInput as HTMLInputElement).checked = this.opts.isDone;
+    toggleInput.checked = this.opts.isDone;
     toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
 
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
     ok.addEventListener("click", () => {
-      const name = (nameInput as HTMLInputElement).value.trim();
+      const name = nameInput.value.trim();
       if (!name) return;
-      this.cb({ name, isDone: (toggleInput as HTMLInputElement).checked });
+      this.cb({ name, isDone: toggleInput.checked });
       this.close();
     });
-    nameInput.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") ok.click(); if ((e as KeyboardEvent).key === "Escape") this.close(); });
+    nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); if (e.key === "Escape") this.close(); });
   }
   onClose() { this.contentEl.empty(); }
 }
@@ -932,11 +932,11 @@ class CardModal extends Modal {
 
     el.createEl("label", { cls: "kanban-modal-label", text: "Title" });
     const titleInput = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.card?.title ?? "", placeholder: "Task title…" } });
-    (titleInput as HTMLInputElement).focus();
+    titleInput.focus();
 
     el.createEl("label", { cls: "kanban-modal-label", text: "Description" });
     const descInput = el.createEl("textarea", { cls: "kanban-modal-textarea", attr: { placeholder: "Optional details…", rows: "3" } });
-    if (this.card?.description) (descInput as HTMLTextAreaElement).value = this.card.description;
+    if (this.card?.description) descInput.value = this.card.description;
 
     const selected = new Set<string>(this.card?.labelIds ?? []);
 
@@ -959,12 +959,12 @@ class CardModal extends Modal {
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
     const save = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: this.card ? "Save" : "Create" });
     save.addEventListener("click", () => {
-      const t = (titleInput as HTMLInputElement).value.trim();
+      const t = titleInput.value.trim();
       if (!t) { new Notice("Please enter a title."); return; }
-      this.cb(t, (descInput as HTMLTextAreaElement).value.trim(), Array.from(selected));
+      this.cb(t, descInput.value.trim(), Array.from(selected));
       this.close();
     });
-    titleInput.addEventListener("keydown", (e) => { if ((e as KeyboardEvent).key === "Enter") save.click(); });
+    titleInput.addEventListener("keydown", (e) => { if (e.key === "Enter") save.click(); });
   }
   onClose() { this.contentEl.empty(); }
 }
@@ -1050,7 +1050,6 @@ class KanbanSettingTab extends PluginSettingTab {
     el.empty();
     el.addClass("kanban-settings");
 
-    new Setting(el).setName("Kanban Todo Board").setHeading();
     el.createEl("p", { cls: "setting-item-description", text: "Labels are assigned to cards and drive the skill chart." });
 
     new Setting(el).setName("Labels").setHeading();
@@ -1058,9 +1057,9 @@ class KanbanSettingTab extends PluginSettingTab {
     this.renderLabels(list);
 
     new Setting(el).addButton((b) =>
-      b.setButtonText("+ Add label").setCta().onClick(async () => {
+      b.setButtonText("Add label").setCta().onClick(() => {
         this.plugin.settings.labels.push({ id: generateId(), name: "New label", color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
         this.display();
       })
     );
@@ -1069,9 +1068,9 @@ class KanbanSettingTab extends PluginSettingTab {
     new Setting(el)
       .setName("Reset skill scores")
       .setDesc("Clears all accumulated scores and history.")
-      .addButton((b) => b.setButtonText("Reset").setWarning().onClick(async () => {
+      .addButton((b) => b.setButtonText("Reset").setWarning().onClick(() => {
         this.plugin.settings.skillData = { scores: {}, snapshots: [] };
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
         new Notice("Skill scores reset.");
       }));
   }
@@ -1083,17 +1082,17 @@ class KanbanSettingTab extends PluginSettingTab {
 
       const colorInput = row.createEl("input", { cls: "kanban-settings-color", attr: { type: "color", value: label.color } });
       colorInput.addEventListener("input", () => {
-        label.color = (colorInput as HTMLInputElement).value;
+        label.color = colorInput.value;
         preview.style.setProperty("--lc", label.color);
         void this.plugin.saveSettings();
       });
 
       const nameInput = row.createEl("input", { cls: "kanban-settings-name", attr: { type: "text", value: label.name } });
       nameInput.addEventListener("change", () => {
-        label.name = (nameInput as HTMLInputElement).value.trim() || label.name;
+        label.name = nameInput.value.trim() || label.name;
         void this.plugin.saveSettings();
       });
-      nameInput.addEventListener("input", () => { preview.textContent = (nameInput as HTMLInputElement).value || label.name; });
+      nameInput.addEventListener("input", () => { preview.textContent = nameInput.value || label.name; });
 
       const preview = row.createEl("span", { cls: "kanban-label-tag", text: label.name });
       preview.style.setProperty("--lc", label.color);
