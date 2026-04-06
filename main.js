@@ -134,19 +134,25 @@ var KanbanView = class extends import_obsidian.TextFileView {
     if (fromIdx === -1)
       return;
     fromCol.cards.splice(fromIdx, 1);
-    if (fromCol.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length)) {
-      await this.plugin.updateSkillScores(card.labelIds, -1);
-    }
+    const wasInDone = fromCol.isDone;
     if (toCol.isDone) {
       card.completedAt = Date.now();
-      if ((_b = card.labelIds) == null ? void 0 : _b.length)
-        await this.plugin.updateSkillScores(card.labelIds, 1);
     } else {
       delete card.completedAt;
     }
     const insertAt = toIndex !== void 0 ? Math.min(toIndex, toCol.cards.length) : toCol.cards.length;
     toCol.cards.splice(insertAt, 0, card);
     this.persist();
+    try {
+      if (wasInDone && ((_a = card.labelIds) == null ? void 0 : _a.length)) {
+        await this.plugin.updateSkillScores(card.labelIds, -1);
+      }
+      if (toCol.isDone && ((_b = card.labelIds) == null ? void 0 : _b.length)) {
+        await this.plugin.updateSkillScores(card.labelIds, 1);
+      }
+    } catch (e) {
+      console.error("Failed to update skill scores:", e);
+    }
     void this.plugin.refreshAllDoneView();
   }
   render() {
@@ -307,7 +313,7 @@ var KanbanView = class extends import_obsidian.TextFileView {
       }
     });
     cardsEl.addEventListener("dragleave", (e) => {
-      if (!colEl.contains(e.relatedTarget)) {
+      if (!(e.relatedTarget instanceof Node) || !colEl.contains(e.relatedTarget)) {
         colEl.removeClass("drag-over");
       }
     });
@@ -673,9 +679,10 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
       var _a;
       return (_a = scores[l.id]) != null ? _a : 0;
     });
-    const cmpVals = compareScores ? labels.map((l) => {
+    const cmpScores = compareScores;
+    const cmpVals = cmpScores ? labels.map((l) => {
       var _a;
-      return (_a = compareScores[l.id]) != null ? _a : 0;
+      return (_a = cmpScores[l.id]) != null ? _a : 0;
     }) : [];
     const rawMax = Math.max(...allVals, ...cmpVals, 1);
     const scale = rawMax <= 5 ? 5 : rawMax <= 10 ? 10 : Math.ceil(rawMax / 5) * 5;
@@ -830,7 +837,7 @@ var InputModal = class extends import_obsidian.Modal {
     input.select();
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
     ok.addEventListener("click", () => {
       const v = input.value.trim();
       if (v) {
@@ -896,7 +903,7 @@ var ColumnModal = class extends import_obsidian.Modal {
     toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
     ok.addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name)
@@ -986,10 +993,10 @@ var KanbanTodoPlugin = class extends import_obsidian.Plugin {
     this.registerExtensions(["kanban"], KANBAN_VIEW_TYPE);
     this.registerView(SKILL_CHART_VIEW_TYPE, (leaf) => new KanbanSkillChartView(leaf, this));
     this.registerView(ALL_DONE_VIEW_TYPE, (leaf) => new AllDoneTodosView(leaf, this));
-    this.addRibbonIcon("layout-dashboard", "New Kanban board", () => this.createBoard());
+    this.addRibbonIcon("layout-dashboard", "New kanban board", () => this.createBoard());
     this.addRibbonIcon("check-square", "All done todos", () => void this.openView(ALL_DONE_VIEW_TYPE));
     this.addRibbonIcon("activity", "Skill chart", () => void this.openView(SKILL_CHART_VIEW_TYPE));
-    this.addCommand({ id: "create-kanban-board", name: "New Kanban board", callback: () => this.createBoard() });
+    this.addCommand({ id: "create-kanban-board", name: "New kanban board", callback: () => this.createBoard() });
     this.addCommand({ id: "open-skill-chart", name: "Open skill chart", callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
     this.addCommand({ id: "open-all-done", name: "Open all done todos", callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
     this.addSettingTab(new KanbanSettingTab(this.app, this));
@@ -1024,11 +1031,15 @@ var KanbanTodoPlugin = class extends import_obsidian.Plugin {
       this.settings.skillData.scores[id] = Math.max(0, ((_a = this.settings.skillData.scores[id]) != null ? _a : 0) + delta);
     }
     await this.saveSettings();
-    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => l.view.render());
+    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
+      if (l.view instanceof KanbanSkillChartView)
+        l.view.render();
+    });
   }
   async refreshAllDoneView() {
     for (const l of this.app.workspace.getLeavesOfType(ALL_DONE_VIEW_TYPE)) {
-      await l.view.render();
+      if (l.view instanceof AllDoneTodosView)
+        await l.view.render();
     }
   }
   async loadSettings() {

@@ -139,7 +139,7 @@ export class KanbanView extends TextFileView {
 
   setViewData(data: string, _clear: boolean): void {
     try {
-      const parsed = JSON.parse(data) as KanbanBoard;
+      const parsed: KanbanBoard = JSON.parse(data);
       this.boardData = parsed?.columns ? parsed : defaultBoard();
     } catch { this.boardData = defaultBoard(); }
     this.render();
@@ -154,12 +154,9 @@ export class KanbanView extends TextFileView {
     if (fromIdx === -1) return;
     fromCol.cards.splice(fromIdx, 1);
 
-    if (fromCol.isDone && card.labelIds?.length) {
-      await this.plugin.updateSkillScores(card.labelIds, -1);
-    }
+    const wasInDone = fromCol.isDone;
     if (toCol.isDone) {
       card.completedAt = Date.now();
-      if (card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, +1);
     } else {
       delete card.completedAt;
     }
@@ -167,6 +164,17 @@ export class KanbanView extends TextFileView {
     const insertAt = toIndex !== undefined ? Math.min(toIndex, toCol.cards.length) : toCol.cards.length;
     toCol.cards.splice(insertAt, 0, card);
     this.persist();
+
+    try {
+      if (wasInDone && card.labelIds?.length) {
+        await this.plugin.updateSkillScores(card.labelIds, -1);
+      }
+      if (toCol.isDone && card.labelIds?.length) {
+        await this.plugin.updateSkillScores(card.labelIds, +1);
+      }
+    } catch (e) {
+      console.error("Failed to update skill scores:", e);
+    }
     void this.plugin.refreshAllDoneView();
   }
 
@@ -338,7 +346,7 @@ export class KanbanView extends TextFileView {
       }
     });
     cardsEl.addEventListener("dragleave", (e) => {
-      if (!colEl.contains(e.relatedTarget as Node)) {
+      if (!(e.relatedTarget instanceof Node) || !colEl.contains(e.relatedTarget)) {
         colEl.removeClass("drag-over");
       }
     });
@@ -545,7 +553,7 @@ export class AllDoneTodosView extends ItemView {
     for (const file of files) {
       try {
         const raw = await this.app.vault.read(file);
-        const board = JSON.parse(raw) as KanbanBoard;
+        const board: KanbanBoard = JSON.parse(raw);
         if (!board?.columns) continue;
         for (const col of board.columns) {
           if (!col.isDone) continue;
@@ -702,7 +710,8 @@ export class KanbanSkillChartView extends ItemView {
     }
 
     const allVals = labels.map((l) => scores[l.id] ?? 0);
-    const cmpVals = compareScores ? labels.map((l) => (compareScores as Record<string, number>)[l.id] ?? 0) : [];
+    const cmpScores = compareScores;
+    const cmpVals = cmpScores ? labels.map((l) => cmpScores[l.id] ?? 0) : [];
     const rawMax = Math.max(...allVals, ...cmpVals, 1);
     const scale = rawMax <= 5 ? 5 : rawMax <= 10 ? 10 : Math.ceil(rawMax / 5) * 5;
 
@@ -864,7 +873,7 @@ class InputModal extends Modal {
     input.select();
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
     ok.addEventListener("click", () => { const v = input.value.trim(); if (v) { this.cb(v); this.close(); } });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); if (e.key === "Escape") this.close(); });
   }
@@ -911,7 +920,7 @@ class ColumnModal extends Modal {
 
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "Ok" });
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
     ok.addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name) return;
@@ -982,11 +991,11 @@ export default class KanbanTodoPlugin extends Plugin {
     this.registerView(SKILL_CHART_VIEW_TYPE, (leaf) => new KanbanSkillChartView(leaf, this));
     this.registerView(ALL_DONE_VIEW_TYPE, (leaf) => new AllDoneTodosView(leaf, this));
 
-    this.addRibbonIcon("layout-dashboard", "New Kanban board", () => this.createBoard());
+    this.addRibbonIcon("layout-dashboard", "New kanban board", () => this.createBoard());
     this.addRibbonIcon("check-square", "All done todos", () => void this.openView(ALL_DONE_VIEW_TYPE));
     this.addRibbonIcon("activity", "Skill chart", () => void this.openView(SKILL_CHART_VIEW_TYPE));
 
-    this.addCommand({ id: "create-kanban-board", name: "New Kanban board", callback: () => this.createBoard() });
+    this.addCommand({ id: "create-kanban-board", name: "New kanban board", callback: () => this.createBoard() });
     this.addCommand({ id: "open-skill-chart", name: "Open skill chart", callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
     this.addCommand({ id: "open-all-done", name: "Open all done todos", callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
 
@@ -1018,17 +1027,19 @@ export default class KanbanTodoPlugin extends Plugin {
       this.settings.skillData.scores[id] = Math.max(0, (this.settings.skillData.scores[id] ?? 0) + delta);
     }
     await this.saveSettings();
-    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => (l.view as KanbanSkillChartView).render());
+    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
+      if (l.view instanceof KanbanSkillChartView) l.view.render();
+    });
   }
 
   async refreshAllDoneView(): Promise<void> {
     for (const l of this.app.workspace.getLeavesOfType(ALL_DONE_VIEW_TYPE)) {
-      await (l.view as AllDoneTodosView).render();
+      if (l.view instanceof AllDoneTodosView) await l.view.render();
     }
   }
 
   async loadSettings(): Promise<void> {
-    const loaded = await this.loadData() as Partial<KanbanPluginSettings>;
+    const loaded: Partial<KanbanPluginSettings> = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
     if (!this.settings.labels) this.settings.labels = DEFAULT_SETTINGS.labels;
     if (!this.settings.skillData) this.settings.skillData = { scores: {}, snapshots: [] };
