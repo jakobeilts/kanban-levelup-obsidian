@@ -286,7 +286,7 @@ export class KanbanView extends TextFileView {
 
     const titleEl = hdr.createEl("span", { cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
-      hdr.createEl("span", { cls: "kanban-done-tag", text: "done", attr: { title: "This is the done column" } });
+      hdr.createEl("span", { cls: "kanban-done-tag", text: "Done", attr: { title: "This is the done column" } });
     }
 
     titleEl.addEventListener("dblclick", () => {
@@ -682,9 +682,9 @@ export class KanbanSkillChartView extends ItemView {
       });
 
       const dateRow = rangeInputs.createEl("div", { cls: "kanban-skill-date-row" });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "from" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "From" });
       const fromInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareFrom, max: this.compareTo } });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "to" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "To" });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
       fromInput.addEventListener("change", () => { if (fromInput.value) { this.compareFrom = fromInput.value; this.render(); } });
       toInput.addEventListener("change", () => { if (toInput.value) { this.compareTo = toInput.value; this.render(); } });
@@ -1016,10 +1016,10 @@ export default class KanbanTodoPlugin extends Plugin {
 
   async openView(type: string): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(type)[0];
-    if (existing) { this.app.workspace.revealLeaf(existing); return; }
+    if (existing) { await this.app.workspace.revealLeaf(existing); return; }
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.setViewState({ type, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 
   async updateSkillScores(labelIds: string[], delta: number): Promise<void> {

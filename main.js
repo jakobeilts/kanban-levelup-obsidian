@@ -254,7 +254,7 @@ var KanbanView = class extends import_obsidian.TextFileView {
     accent.style.background = (_a = col.color) != null ? _a : "#6366f1";
     const titleEl = hdr.createEl("span", { cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
-      hdr.createEl("span", { cls: "kanban-done-tag", text: "done", attr: { title: "This is the done column" } });
+      hdr.createEl("span", { cls: "kanban-done-tag", text: "Done", attr: { title: "This is the done column" } });
     }
     titleEl.addEventListener("dblclick", () => {
       var _a2;
@@ -642,9 +642,9 @@ var KanbanSkillChartView = class extends import_obsidian.ItemView {
         });
       });
       const dateRow = rangeInputs.createEl("div", { cls: "kanban-skill-date-row" });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "from" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "From" });
       const fromInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareFrom, max: this.compareTo } });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "to" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "To" });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
       fromInput.addEventListener("change", () => {
         if (fromInput.value) {
@@ -1018,12 +1018,12 @@ var KanbanTodoPlugin = class extends import_obsidian.Plugin {
   async openView(type) {
     const existing = this.app.workspace.getLeavesOfType(type)[0];
     if (existing) {
-      this.app.workspace.revealLeaf(existing);
+      await this.app.workspace.revealLeaf(existing);
       return;
     }
     const leaf = this.app.workspace.getLeaf(false);
     await leaf.setViewState({ type, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
   async updateSkillScores(labelIds, delta) {
     var _a;
