@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const PLUGIN_ID = "kanban-todo-board";
+const PLUGIN_ID = "kanban-level-up";
 const QUADRANTS = ["do", "schedule", "delegate", "eliminate"];
 
 // ─── args ─────────────────────────────────────────────────────────────────────

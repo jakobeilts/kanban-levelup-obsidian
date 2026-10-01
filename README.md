@@ -45,10 +45,10 @@ Inside a board, any column can also be put in order with a [priority duel](#-pri
 ### Option B: Manual install from a release
 
 1. Open the [latest release](https://github.com/jakobeilts/kanban-levelup-obsidian/releases/latest) and download the three files **`main.js`**, **`manifest.json`** and **`styles.css`** (not the source code zip)
-2. Open your vault folder and go to `.obsidian/plugins/`. Create the folder **`kanban-todo-board`** there if it does not exist
+2. Open your vault folder and go to `.obsidian/plugins/`. Create the folder **`kanban-level-up`** there if it does not exist
 3. Put the three files **directly** into that folder:
    ```
-   <YourVault>/.obsidian/plugins/kanban-todo-board/
+   <YourVault>/.obsidian/plugins/kanban-level-up/
    ├── main.js
    ├── manifest.json
    └── styles.css
@@ -61,8 +61,8 @@ From the terminal (macOS/Linux), with the three files in your Downloads folder:
 
 ```bash
 VAULT="$HOME/path/to/YourVault"          # quotes matter if the path contains spaces
-mkdir -p "$VAULT/.obsidian/plugins/kanban-todo-board"
-cp ~/Downloads/{main.js,manifest.json,styles.css} "$VAULT/.obsidian/plugins/kanban-todo-board/"
+mkdir -p "$VAULT/.obsidian/plugins/kanban-level-up"
+cp ~/Downloads/{main.js,manifest.json,styles.css} "$VAULT/.obsidian/plugins/kanban-level-up/"
 ```
 
 ### Updating from an older version
@@ -74,7 +74,7 @@ Already have an earlier version (for example 1.0.0)? Your boards and settings ca
 **If you installed manually:**
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/jakobeilts/kanban-levelup-obsidian/releases/latest)
-2. Copy them into `<YourVault>/.obsidian/plugins/kanban-todo-board/` and **replace** the existing files
+2. Copy them into `<YourVault>/.obsidian/plugins/kanban-level-up/` and **replace** the existing files
 3. Reload Obsidian: `Cmd/Ctrl + P` → *Reload app without saving* (or turn the plugin off and on again under Community plugins)
 4. Check the version under Settings → Community plugins → Kanban Todo Board
 
@@ -82,11 +82,18 @@ What to keep in mind:
 
 - **Do not delete the plugin folder** to "start clean". Besides the three program files it contains `data.json` with your labels, skill chart scores and settings. Replace only the three files.
 - **Your boards are safe either way.** They are the `.kanban` files in your vault, not part of the plugin folder.
-- **Folder name must be `kanban-todo-board`.** If an older copy lives in a folder with another name (e.g. `kanban-levelup-obsidian`), Obsidian may list the plugin twice or load the old one. Copy `data.json` from the old folder into `kanban-todo-board`, then delete the old folder.
-- **Switching from manual to BRAT** needs no clean-up: BRAT writes into the same `kanban-todo-board` folder and keeps `data.json`.
+- **Folder name must be `kanban-level-up`** (the plugin ID). Version **1.1.0 used the ID `kanban-todo-board` by mistake** and therefore installed into a folder of that name. If you have a `kanban-todo-board` folder: install 1.1.1 or newer into `kanban-level-up` as described above, copy `data.json` from `kanban-todo-board` into `kanban-level-up` (if it exists), enable the plugin again under Community plugins, then delete the `kanban-todo-board` folder. The same applies to any other old copy (e.g. a folder named `kanban-levelup-obsidian`).
+- **Switching from manual to BRAT** needs no clean-up: BRAT writes into the same `kanban-level-up` folder and keeps `data.json`.
 - **Going back to an older version** is safe: older versions simply ignore fields they do not know (such as Eisenhower categories or the duel order).
 
-### What's new in 1.1.0
+### What's new
+
+**1.1.1**
+
+- Restores the plugin ID `kanban-level-up` used by 1.0.0 and by the community directory. 1.1.0 had changed it to `kanban-todo-board`, which made Obsidian treat it as a separate plugin — see *Updating from an older version* if you installed 1.1.0
+
+**1.1.0**
+
 
 - **🧭 Eisenhower matrix** — sort open tasks into urgent/important quadrants; categories are stored per card
 - **🥊 Priority duel** — order a column by picking the more important of two cards ([details](#-priority-duel))
@@ -98,10 +105,10 @@ What to keep in mind:
 
 | Problem | Fix |
 |---|---|
-| Plugin does not appear under *Installed plugins* | The three files must sit directly in `kanban-todo-board/`, not in a sub-folder like `kanban-todo-board/kanban-todo-board-1.1.0/`. Then click the reload icon next to *Installed plugins* |
+| Plugin does not appear under *Installed plugins* | The three files must sit directly in `kanban-level-up/`, not in a sub-folder like `kanban-level-up/kanban-level-up-1.1.1/`. Then click the reload icon next to *Installed plugins* |
 | New features are missing after an update | Obsidian still runs the old code: `Cmd/Ctrl + P` → *Reload app without saving*. Check the version number under Community plugins |
 | `cp: … Not a directory` in the terminal | The vault path contains a space and is not in quotes — put the whole target path in `"…"` |
-| Plugin is listed twice | An older copy exists under another folder name, see *Updating from an older version* |
+| Plugin is listed twice | An older copy exists under another folder name (typically `kanban-todo-board` from version 1.1.0), see *Updating from an older version* |
 | Something else | Open the developer console (`Cmd + Option + I` / `Ctrl + Shift + I`) and include the red error message in an [issue](https://github.com/jakobeilts/kanban-levelup-obsidian/issues) |
 
 ---
@@ -292,7 +299,7 @@ kanban-levelup-obsidian/
 ```
 
 Board data is stored in `.kanban` files in your vault (plain JSON).  
-Label definitions and Skill Chart scores are stored in `.obsidian/plugins/kanban-todo-board/data.json`.
+Label definitions and Skill Chart scores are stored in `.obsidian/plugins/kanban-level-up/data.json`.
 
 ---
 
@@ -310,7 +317,7 @@ npm run build   # Type-check with tsc, then bundle with esbuild
 ```
 
 To try a build in Obsidian, copy `main.js`, `manifest.json` and `styles.css` into
-`<YourVault>/.obsidian/plugins/kanban-todo-board/` and reload the app. Developing directly
+`<YourVault>/.obsidian/plugins/kanban-level-up/` and reload the app. Developing directly
 inside a vault's plugin folder works too — `npm run dev` then rebuilds in place.
 
 ### Test data
