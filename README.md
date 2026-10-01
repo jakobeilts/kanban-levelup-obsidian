@@ -88,9 +88,12 @@ What to keep in mind:
 
 ### What's new
 
-**1.1.1**
+**1.1.2**
 
 - Restores the plugin ID `kanban-level-up` used by 1.0.0 and by the community directory. 1.1.0 had changed it to `kanban-todo-board`, which made Obsidian treat it as a separate plugin — see *Updating from an older version* if you installed 1.1.0
+- Requires Obsidian 1.8.7 or newer (the APIs the plugin uses were not available in the previously declared 0.15.0)
+- Code clean-up from the community directory's automated review: Obsidian DOM helpers throughout, stricter typing, no `builtin-modules` build dependency
+- Label names containing `&`, `<` or `>` now display correctly in the skill chart
 
 **1.1.0**
 
@@ -115,7 +118,7 @@ What to keep in mind:
 
 ## Requirements
 
-Obsidian 0.15.0 or newer. Works on desktop and mobile, though the card action buttons are revealed on hover and are therefore easier to reach with a pointer. *Automatic* language detection needs Obsidian 1.8.7 or newer; on older versions choose the language in the plugin settings.
+Obsidian 1.8.7 or newer (since plugin version 1.1.2). Works on desktop and mobile, though the card action buttons are revealed on hover and are therefore easier to reach with a pointer.
 
 ---
 

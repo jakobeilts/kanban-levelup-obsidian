@@ -270,15 +270,14 @@ export class DuelRanker {
     const stability = Math.min(1, held / window) * Math.min(1, k / minDuels);
     const progress = Math.min(1, 0.3 * coverage + 0.2 * placed + 0.5 * stability);
     const top = this.topCount();
-    const base = { top, held, window, count: 0 };
+    const verdict = (state: DuelVerdict["state"], count = 0): DuelVerdict =>
+      ({ ready: state === "ready", progress: state === "ready" ? 1 : progress, state, count, top, held, window });
 
-    if (uncovered === 0 && placing === 0 && held >= window && k >= minDuels) {
-      return Object.assign(base, { ready: true, progress: 1, state: "ready" as const });
-    }
-    if (k === 0) return Object.assign(base, { ready: false, progress, state: "start" as const });
-    if (uncovered > 0) return Object.assign(base, { ready: false, progress, state: "uncovered" as const, count: uncovered });
-    if (placing > 0) return Object.assign(base, { ready: false, progress, state: "placing" as const, count: placing });
-    return Object.assign(base, { ready: false, progress, state: (held === 0 ? "justChanged" : "holding") as DuelVerdict["state"] });
+    if (uncovered === 0 && placing === 0 && held >= window && k >= minDuels) return verdict("ready");
+    if (k === 0) return verdict("start");
+    if (uncovered > 0) return verdict("uncovered", uncovered);
+    if (placing > 0) return verdict("placing", placing);
+    return verdict(held === 0 ? "justChanged" : "holding");
   }
 }
 

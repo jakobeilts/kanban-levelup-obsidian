@@ -34,12 +34,8 @@ type HelpItem = "settled" | "cards" | "equal" | "skip" | "undo" | "chips" | "why
 
 type Side = "L" | "R" | "T";
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-function svg(parent: Element, tag: string, attrs: Record<string, string | number> = {}): SVGElement {
-  const el = document.createElementNS(SVG_NS, tag);
-  for (const k of Object.keys(attrs)) el.setAttribute(k, String(attrs[k]));
-  parent.appendChild(el);
-  return el;
+function svg(parent: Element, tag: keyof SVGElementTagNameMap, attrs: Record<string, string | number> = {}): SVGElement {
+  return parent.createSvg(tag, { attr: attrs });
 }
 
 export function verdictText(v: DuelVerdict): string {

@@ -114,14 +114,8 @@ function wrapText(text: string, maxLen: number): string[] {
   return lines;
 }
 
-function escSvg(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function svgEl(tag: string, attrs: Record<string, string> = {}): SVGElement {
-  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  return el;
+function svgEl(tag: keyof SVGElementTagNameMap, attrs: Record<string, string> = {}): SVGElement {
+  return createSvg(tag, { attr: attrs });
 }
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -174,7 +168,7 @@ export class KanbanView extends TextFileView {
 
   setViewData(data: string, _clear: boolean): void {
     try {
-      const parsed: KanbanBoard = JSON.parse(data);
+      const parsed = JSON.parse(data) as KanbanBoard;
       this.boardData = parsed?.columns ? parsed : defaultBoard();
     } catch { this.boardData = defaultBoard(); }
     if (this.file) this.plugin.lastBoardPath = this.file.path;
@@ -226,8 +220,8 @@ export class KanbanView extends TextFileView {
     el.empty();
     el.addClass("kanban-root");
 
-    const hdr = el.createEl("div", { cls: "kanban-header" });
-    hdr.createEl("span", { cls: "kanban-header-title", text: this.file?.basename ?? t("board.fallbackTitle") });
+    const hdr = el.createDiv({ cls: "kanban-header" });
+    hdr.createSpan({ cls: "kanban-header-title", text: this.file?.basename ?? t("board.fallbackTitle") });
     const renameBtn = hdr.createEl("button", { cls: "kanban-rename-btn", attr: { title: t("board.rename") } });
     setIcon(renameBtn, "pencil");
     renameBtn.addEventListener("click", () => {
@@ -240,11 +234,11 @@ export class KanbanView extends TextFileView {
       }).open();
     });
 
-    const board = el.createEl("div", { cls: "kanban-board" });
+    const board = el.createDiv({ cls: "kanban-board" });
 
     this.boardData.columns.forEach((col, colIdx) => {
       // Drop zone gap before each column (for column reordering)
-      const dropGap = board.createEl("div", { cls: "kanban-col-gap" });
+      const dropGap = board.createDiv({ cls: "kanban-col-gap" });
       dropGap.dataset["index"] = String(colIdx);
       dropGap.addEventListener("dragover", (e) => {
         if (!this.draggedCol) return;
@@ -262,7 +256,7 @@ export class KanbanView extends TextFileView {
     });
 
     // Final drop gap after all columns
-    const lastGap = board.createEl("div", { cls: "kanban-col-gap" });
+    const lastGap = board.createDiv({ cls: "kanban-col-gap" });
     lastGap.dataset["index"] = String(this.boardData.columns.length);
     lastGap.addEventListener("dragover", (e) => {
       if (!this.draggedCol) return;
@@ -305,8 +299,8 @@ export class KanbanView extends TextFileView {
       : col.cards;
     const hiddenCount = col.isDone ? col.cards.length - visibleCards.length : 0;
 
-    const colEl = board.createEl("div", { cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
-    const hdr = colEl.createEl("div", { cls: "kanban-col-hdr", attr: { draggable: "true" } });
+    const colEl = board.createDiv({ cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
+    const hdr = colEl.createDiv({ cls: "kanban-col-hdr", attr: { draggable: "true" } });
 
     // Column drag handle events
     hdr.addEventListener("dragstart", (e) => {
@@ -321,15 +315,15 @@ export class KanbanView extends TextFileView {
       this.contentEl.querySelectorAll(".col-gap-active").forEach((n) => n.removeClass("col-gap-active"));
     });
 
-    const dragHandle = hdr.createEl("span", { cls: "kanban-col-drag-handle", attr: { title: t("col.dragToReorder") } });
+    const dragHandle = hdr.createSpan({ cls: "kanban-col-drag-handle", attr: { title: t("col.dragToReorder") } });
     setIcon(dragHandle, "grip-vertical");
 
-    const accent = hdr.createEl("span", { cls: "kanban-col-accent" });
+    const accent = hdr.createSpan({ cls: "kanban-col-accent" });
     accent.style.background = col.color ?? "#6366f1";
 
-    const titleEl = hdr.createEl("span", { cls: "kanban-col-title", text: col.name });
+    const titleEl = hdr.createSpan({ cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
-      hdr.createEl("span", { cls: "kanban-done-tag", text: t("col.doneTag"), attr: { title: t("col.doneTagTitle") } });
+      hdr.createSpan({ cls: "kanban-done-tag", text: t("col.doneTag"), attr: { title: t("col.doneTagTitle") } });
     }
 
     titleEl.addEventListener("dblclick", () => {
@@ -358,7 +352,7 @@ export class KanbanView extends TextFileView {
       }).open();
     });
 
-    const badge = hdr.createEl("span", { cls: "kanban-col-badge", text: String(col.cards.length) });
+    const badge = hdr.createSpan({ cls: "kanban-col-badge", text: String(col.cards.length) });
     badge.style.background = col.color ?? "#6366f1";
 
     if (!col.isDone) {
@@ -387,7 +381,7 @@ export class KanbanView extends TextFileView {
       }
     });
 
-    const cardsEl = colEl.createEl("div", { cls: "kanban-cards" });
+    const cardsEl = colEl.createDiv({ cls: "kanban-cards" });
 
     // Cards container drop: used when dragging a card onto an empty column or below all cards
     cardsEl.addEventListener("dragover", (e) => {
@@ -422,16 +416,16 @@ export class KanbanView extends TextFileView {
     visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards.length));
 
     if (hiddenCount > 0) {
-      const archivedNote = cardsEl.createEl("div", { cls: "kanban-archived-note" });
-      const archiveIcon = archivedNote.createEl("span");
+      const archivedNote = cardsEl.createDiv({ cls: "kanban-archived-note" });
+      const archiveIcon = archivedNote.createSpan();
       setIcon(archiveIcon, "archive");
-      archivedNote.createEl("span", { text: " " + tp("col.archived", hiddenCount) });
+      archivedNote.createSpan({ text: " " + tp("col.archived", hiddenCount) });
     }
 
     const addBtn = colEl.createEl("button", { cls: "kanban-add-card-btn" });
-    const plusIcon = addBtn.createEl("span");
+    const plusIcon = addBtn.createSpan();
     setIcon(plusIcon, "plus");
-    addBtn.createEl("span", { text: t("col.addCard") });
+    addBtn.createSpan({ text: t("col.addCard") });
     addBtn.addEventListener("click", () => {
       new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds, quadrant) => {
         void (async () => {
@@ -506,7 +500,7 @@ export class KanbanView extends TextFileView {
   }
 
   private renderCard(container: HTMLElement, card: KanbanCard, col: KanbanColumn, cardIdx: number, _totalVisible: number) {
-    const el = container.createEl("div", { cls: "kanban-card", attr: { draggable: "true" } });
+    const el = container.createDiv({ cls: "kanban-card", attr: { draggable: "true" } });
 
     el.addEventListener("dragstart", (e) => {
       if (this.draggedCol) return; // column drag takes priority
@@ -558,26 +552,26 @@ export class KanbanView extends TextFileView {
       container.closest(".kanban-col")?.removeClass("drag-over");
     });
 
-    const body = el.createEl("div", { cls: "kanban-card-body" });
-    body.createEl("div", { cls: "kanban-card-title", text: card.title });
-    if (card.description) body.createEl("div", { cls: "kanban-card-desc", text: card.description });
+    const body = el.createDiv({ cls: "kanban-card-body" });
+    body.createDiv({ cls: "kanban-card-title", text: card.title });
+    if (card.description) body.createDiv({ cls: "kanban-card-desc", text: card.description });
 
     const qDef = quadrantDef(card.quadrant);
     const cardLabels = this.plugin.settings.labels.filter((l) => card.labelIds?.includes(l.id));
     if (qDef || cardLabels.length) {
-      const row = el.createEl("div", { cls: "kanban-card-labels" });
+      const row = el.createDiv({ cls: "kanban-card-labels" });
       if (qDef) {
-        const qTag = row.createEl("span", { cls: "kanban-label-tag kanban-eh-tag", text: qDef.name, attr: { title: t("card.ehTitle", { hint: qDef.hint }) } });
+        const qTag = row.createSpan({ cls: "kanban-label-tag kanban-eh-tag", text: qDef.name, attr: { title: t("card.ehTitle", { hint: qDef.hint }) } });
         qTag.style.setProperty("--lc", qDef.color);
       }
       cardLabels.forEach((l) => {
-        const tag = row.createEl("span", { cls: "kanban-label-tag", text: l.name });
+        const tag = row.createSpan({ cls: "kanban-label-tag", text: l.name });
         tag.style.setProperty("--lc", l.color);
       });
     }
 
-    const footer = el.createEl("div", { cls: "kanban-card-footer" });
-    const actions = footer.createEl("div", { cls: "kanban-card-actions" });
+    const footer = el.createDiv({ cls: "kanban-card-footer" });
+    const actions = footer.createDiv({ cls: "kanban-card-actions" });
 
     const colIdx = this.boardData.columns.findIndex((c) => c.id === col.id);
     if (colIdx > 0) {
@@ -659,7 +653,7 @@ export class AllDoneTodosView extends ItemView {
     for (const file of files) {
       try {
         const raw = await this.app.vault.read(file);
-        const board: KanbanBoard = JSON.parse(raw);
+        const board = JSON.parse(raw) as KanbanBoard;
         if (!board?.columns) continue;
         for (const col of board.columns) {
           if (!col.isDone) continue;
@@ -671,7 +665,7 @@ export class AllDoneTodosView extends ItemView {
     }
 
     if (entries.length === 0) {
-      el.createEl("div", { cls: "kanban-done-empty", text: t("done.empty") });
+      el.createDiv({ cls: "kanban-done-empty", text: t("done.empty") });
       return;
     }
 
@@ -684,28 +678,28 @@ export class AllDoneTodosView extends ItemView {
       groups.get(dateKey)?.push(entry);
     }
 
-    el.createEl("div", { cls: "kanban-done-count", text: `${tp("done.todos", entries.length)} ${tp("done.boards", files.length)}` });
+    el.createDiv({ cls: "kanban-done-count", text: `${tp("done.todos", entries.length)} ${tp("done.boards", files.length)}` });
 
     for (const [dateKey, dayEntries] of groups) {
-      const section = el.createEl("div", { cls: "kanban-done-section" });
-      section.createEl("div", { cls: "kanban-done-date-hdr", text: dateKey });
+      const section = el.createDiv({ cls: "kanban-done-section" });
+      section.createDiv({ cls: "kanban-done-date-hdr", text: dateKey });
 
       for (const entry of dayEntries) {
-        const row = section.createEl("div", { cls: "kanban-done-row" });
-        const check = row.createEl("span", { cls: "kanban-done-check" });
+        const row = section.createDiv({ cls: "kanban-done-row" });
+        const check = row.createSpan({ cls: "kanban-done-check" });
         setIcon(check, "check");
 
-        const main = row.createEl("div", { cls: "kanban-done-main" });
-        main.createEl("span", { cls: "kanban-done-card-title", text: entry.card.title });
-        if (entry.card.description) main.createEl("span", { cls: "kanban-done-card-desc", text: entry.card.description });
+        const main = row.createDiv({ cls: "kanban-done-main" });
+        main.createSpan({ cls: "kanban-done-card-title", text: entry.card.title });
+        if (entry.card.description) main.createSpan({ cls: "kanban-done-card-desc", text: entry.card.description });
 
-        const meta = row.createEl("div", { cls: "kanban-done-meta" });
+        const meta = row.createDiv({ cls: "kanban-done-meta" });
         this.plugin.settings.labels.filter((l) => entry.card.labelIds?.includes(l.id)).forEach((l) => {
-          const tag = meta.createEl("span", { cls: "kanban-label-tag", text: l.name });
+          const tag = meta.createSpan({ cls: "kanban-label-tag", text: l.name });
           tag.style.setProperty("--lc", l.color);
         });
-        meta.createEl("span", { cls: "kanban-done-board", text: entry.boardName });
-        meta.createEl("span", { cls: "kanban-done-time", text: new Date(entry.completedAt).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) });
+        meta.createSpan({ cls: "kanban-done-board", text: entry.boardName });
+        meta.createSpan({ cls: "kanban-done-time", text: new Date(entry.completedAt).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) });
       }
     }
   }
@@ -803,7 +797,7 @@ export class EisenhowerMatrixView extends ItemView {
 
     let board: KanbanBoard;
     try {
-      board = JSON.parse(await this.app.vault.read(file));
+      board = JSON.parse(await this.app.vault.read(file)) as KanbanBoard;
     } catch {
       new Notice(t("eh.cannotRead", { name: file.basename }));
       return null;
@@ -876,7 +870,7 @@ export class EisenhowerMatrixView extends ItemView {
         board = live.boardData;
       } else {
         try {
-          const parsed: KanbanBoard = JSON.parse(await this.app.vault.read(file));
+          const parsed = JSON.parse(await this.app.vault.read(file)) as KanbanBoard;
           board = parsed?.columns ? parsed : null;
         } catch {
           board = null;
@@ -892,11 +886,11 @@ export class EisenhowerMatrixView extends ItemView {
     el.empty();
     el.addClass("kanban-eh-root");
 
-    const hdr = el.createEl("div", { cls: "kanban-eh-hdr" });
+    const hdr = el.createDiv({ cls: "kanban-eh-hdr" });
     hdr.createEl("h2", { cls: "kanban-eh-title", text: t("eh.title") });
 
     if (!file) {
-      el.createEl("div", {
+      el.createDiv({
         cls: "kanban-eh-empty",
         text: t("eh.noBoard"),
       });
@@ -904,7 +898,7 @@ export class EisenhowerMatrixView extends ItemView {
     }
 
     if (!board) {
-      el.createEl("div", { cls: "kanban-eh-empty", text: t("eh.cannotRead", { name: file.basename }) });
+      el.createDiv({ cls: "kanban-eh-empty", text: t("eh.cannotRead", { name: file.basename }) });
       return;
     }
 
@@ -925,31 +919,31 @@ export class EisenhowerMatrixView extends ItemView {
       if (col.isDone) continue;
       for (const card of col.cards) entries.push({ card, column: col });
     }
-    hdr.createEl("span", {
+    hdr.createSpan({
       cls: "kanban-eh-count",
       text: tp("eh.openTasks", entries.length),
     });
 
-    const grid = el.createEl("div", { cls: "kanban-eh-grid" });
-    grid.createEl("div", { cls: "kanban-eh-corner" });
-    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-x", text: t("eh.urgent") });
-    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-x", text: t("eh.notUrgent") });
-    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-y", text: t("eh.important") });
+    const grid = el.createDiv({ cls: "kanban-eh-grid" });
+    grid.createDiv({ cls: "kanban-eh-corner" });
+    grid.createDiv({ cls: "kanban-eh-axis kanban-eh-axis-x", text: t("eh.urgent") });
+    grid.createDiv({ cls: "kanban-eh-axis kanban-eh-axis-x", text: t("eh.notUrgent") });
+    grid.createDiv({ cls: "kanban-eh-axis kanban-eh-axis-y", text: t("eh.important") });
     this.renderQuadrant(grid, "do", entries);
     this.renderQuadrant(grid, "schedule", entries);
-    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-y", text: t("eh.notImportant") });
+    grid.createDiv({ cls: "kanban-eh-axis kanban-eh-axis-y", text: t("eh.notImportant") });
     this.renderQuadrant(grid, "delegate", entries);
     this.renderQuadrant(grid, "eliminate", entries);
 
     const unassigned = entries.filter((e) => !quadrantDef(e.card.quadrant));
-    const tray = el.createEl("div", { cls: "kanban-eh-tray" });
-    const trayHdr = tray.createEl("div", { cls: "kanban-eh-tray-hdr" });
-    trayHdr.createEl("span", { cls: "kanban-eh-tray-title", text: t("eh.notCategorised") });
-    trayHdr.createEl("span", { cls: "kanban-eh-quad-count", text: String(unassigned.length) });
-    const trayBody = tray.createEl("div", { cls: "kanban-eh-tray-body" });
+    const tray = el.createDiv({ cls: "kanban-eh-tray" });
+    const trayHdr = tray.createDiv({ cls: "kanban-eh-tray-hdr" });
+    trayHdr.createSpan({ cls: "kanban-eh-tray-title", text: t("eh.notCategorised") });
+    trayHdr.createSpan({ cls: "kanban-eh-quad-count", text: String(unassigned.length) });
+    const trayBody = tray.createDiv({ cls: "kanban-eh-tray-body" });
     this.makeDropTarget(tray, undefined);
     if (!unassigned.length) {
-      trayBody.createEl("div", { cls: "kanban-eh-quad-empty", text: t("eh.allCategorised") });
+      trayBody.createDiv({ cls: "kanban-eh-quad-empty", text: t("eh.allCategorised") });
     }
     unassigned.forEach((e) => this.renderCard(trayBody, e));
   }
@@ -958,18 +952,18 @@ export class EisenhowerMatrixView extends ItemView {
     const def = quadrantDef(id) ?? EISENHOWER_QUADRANTS[0];
     const items = entries.filter((e) => e.card.quadrant === id);
 
-    const cell = grid.createEl("div", { cls: "kanban-eh-quad" });
+    const cell = grid.createDiv({ cls: "kanban-eh-quad" });
     cell.style.setProperty("--qc", def.color);
 
-    const hdr = cell.createEl("div", { cls: "kanban-eh-quad-hdr" });
-    hdr.createEl("span", { cls: "kanban-eh-quad-dot" });
-    hdr.createEl("span", { cls: "kanban-eh-quad-name", text: def.name });
-    hdr.createEl("span", { cls: "kanban-eh-quad-hint", text: def.hint });
-    hdr.createEl("span", { cls: "kanban-eh-quad-count", text: String(items.length) });
+    const hdr = cell.createDiv({ cls: "kanban-eh-quad-hdr" });
+    hdr.createSpan({ cls: "kanban-eh-quad-dot" });
+    hdr.createSpan({ cls: "kanban-eh-quad-name", text: def.name });
+    hdr.createSpan({ cls: "kanban-eh-quad-hint", text: def.hint });
+    hdr.createSpan({ cls: "kanban-eh-quad-count", text: String(items.length) });
 
-    const body = cell.createEl("div", { cls: "kanban-eh-quad-body" });
+    const body = cell.createDiv({ cls: "kanban-eh-quad-body" });
     this.makeDropTarget(cell, id);
-    if (!items.length) body.createEl("div", { cls: "kanban-eh-quad-empty", text: t("eh.dropHere") });
+    if (!items.length) body.createDiv({ cls: "kanban-eh-quad-empty", text: t("eh.dropHere") });
     items.forEach((e) => this.renderCard(body, e));
   }
 
@@ -1000,7 +994,7 @@ export class EisenhowerMatrixView extends ItemView {
 
   private renderCard(container: HTMLElement, entry: MatrixEntry): void {
     const { card, column } = entry;
-    const el = container.createEl("div", { cls: "kanban-eh-card", attr: { draggable: "true" } });
+    const el = container.createDiv({ cls: "kanban-eh-card", attr: { draggable: "true" } });
 
     el.addEventListener("dragstart", (e) => {
       this.dragged = card;
@@ -1013,16 +1007,16 @@ export class EisenhowerMatrixView extends ItemView {
       this.contentEl.querySelectorAll(".eh-drag-over").forEach((n) => n.removeClass("eh-drag-over"));
     });
 
-    const body = el.createEl("div", { cls: "kanban-eh-card-body" });
-    const titleRow = body.createEl("div", { cls: "kanban-eh-card-titlerow" });
+    const body = el.createDiv({ cls: "kanban-eh-card-body" });
+    const titleRow = body.createDiv({ cls: "kanban-eh-card-titlerow" });
 
     if (card.description) {
       // Descriptions stay collapsed so the matrix keeps an overview density;
       // clicking the card reveals one.
-      const chevron = titleRow.createEl("span", { cls: "kanban-eh-card-toggle" });
+      const chevron = titleRow.createSpan({ cls: "kanban-eh-card-toggle" });
       setIcon(chevron, "chevron-right");
-      titleRow.createEl("span", { cls: "kanban-eh-card-title", text: card.title });
-      const descEl = body.createEl("div", { cls: "kanban-eh-card-desc", text: card.description });
+      titleRow.createSpan({ cls: "kanban-eh-card-title", text: card.title });
+      const descEl = body.createDiv({ cls: "kanban-eh-card-desc", text: card.description });
 
       const sync = () => {
         const open = this.expanded.has(card.id);
@@ -1043,20 +1037,20 @@ export class EisenhowerMatrixView extends ItemView {
     } else {
       // Empty spacer of the same width, so titles line up whether or not a card
       // has a description.
-      titleRow.createEl("span", { cls: "kanban-eh-card-toggle" });
-      titleRow.createEl("span", { cls: "kanban-eh-card-title", text: card.title });
+      titleRow.createSpan({ cls: "kanban-eh-card-toggle" });
+      titleRow.createSpan({ cls: "kanban-eh-card-title", text: card.title });
     }
 
-    const meta = el.createEl("div", { cls: "kanban-eh-card-meta" });
-    meta.createEl("span", { cls: "kanban-eh-card-col", text: column.name });
+    const meta = el.createDiv({ cls: "kanban-eh-card-meta" });
+    meta.createSpan({ cls: "kanban-eh-card-col", text: column.name });
     this.plugin.settings.labels
       .filter((l) => card.labelIds?.includes(l.id))
       .forEach((l) => {
-        const tag = meta.createEl("span", { cls: "kanban-label-tag", text: l.name });
+        const tag = meta.createSpan({ cls: "kanban-label-tag", text: l.name });
         tag.style.setProperty("--lc", l.color);
       });
 
-    const actions = el.createEl("div", { cls: "kanban-eh-card-actions" });
+    const actions = el.createDiv({ cls: "kanban-eh-card-actions" });
 
     const doneBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-done", attr: { title: t("eh.markDone") } });
     setIcon(doneBtn, "check");
@@ -1136,19 +1130,19 @@ export class KanbanSkillChartView extends ItemView {
 
     el.createEl("h2", { cls: "kanban-skill-title", text: t("skill.title") });
 
-    const rangeSection = el.createEl("div", { cls: "kanban-skill-range" });
-    const rangeHeader = rangeSection.createEl("div", { cls: "kanban-skill-range-hdr" });
-    rangeHeader.createEl("span", { cls: "kanban-skill-range-label", text: t("skill.compare") });
+    const rangeSection = el.createDiv({ cls: "kanban-skill-range" });
+    const rangeHeader = rangeSection.createDiv({ cls: "kanban-skill-range-hdr" });
+    rangeHeader.createSpan({ cls: "kanban-skill-range-label", text: t("skill.compare") });
 
     const toggleWrap = rangeHeader.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
     toggleInput.checked = this.compareEnabled;
-    toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
+    toggleWrap.createSpan({ cls: "kanban-skill-toggle-track" });
     toggleInput.addEventListener("change", () => { this.compareEnabled = toggleInput.checked; this.render(); });
 
     if (this.compareEnabled) {
-      const rangeInputs = rangeSection.createEl("div", { cls: "kanban-skill-range-inputs" });
-      const presets = rangeInputs.createEl("div", { cls: "kanban-skill-presets" });
+      const rangeInputs = rangeSection.createDiv({ cls: "kanban-skill-range-inputs" });
+      const presets = rangeInputs.createDiv({ cls: "kanban-skill-presets" });
       [{ label: "1W", days: 7 }, { label: "2W", days: 14 }, { label: "1M", days: 30 }, { label: "3M", days: 90 }, { label: "6M", days: 180 }].forEach((p) => {
         const now = new Date();
         const fromDate = new Date(now.getTime() - p.days * 86400000);
@@ -1161,17 +1155,17 @@ export class KanbanSkillChartView extends ItemView {
         });
       });
 
-      const dateRow = rangeInputs.createEl("div", { cls: "kanban-skill-date-row" });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: t("skill.from") });
+      const dateRow = rangeInputs.createDiv({ cls: "kanban-skill-date-row" });
+      dateRow.createSpan({ cls: "kanban-skill-date-sep", text: t("skill.from") });
       const fromInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareFrom, max: this.compareTo } });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: t("skill.to") });
+      dateRow.createSpan({ cls: "kanban-skill-date-sep", text: t("skill.to") });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
       fromInput.addEventListener("change", () => { if (fromInput.value) { this.compareFrom = fromInput.value; this.render(); } });
       toInput.addEventListener("change", () => { if (toInput.value) { this.compareTo = toInput.value; this.render(); } });
     }
 
     if (labels.length === 0) {
-      el.createEl("div", { cls: "kanban-skill-empty", text: t("skill.noLabels") });
+      el.createDiv({ cls: "kanban-skill-empty", text: t("skill.noLabels") });
       return;
     }
 
@@ -1195,42 +1189,42 @@ export class KanbanSkillChartView extends ItemView {
     const rawMax = Math.max(...allVals, ...cmpVals, 1);
     const scale = rawMax <= 5 ? 5 : rawMax <= 10 ? 10 : Math.ceil(rawMax / 5) * 5;
 
-    const chartWrap = el.createEl("div", { cls: "kanban-skill-chart-wrap" });
+    const chartWrap = el.createDiv({ cls: "kanban-skill-chart-wrap" });
     this.appendRadar(chartWrap, labels, scores, compareScores, scale);
 
     if (compareScores && compareLabel) {
-      const legend = el.createEl("div", { cls: "kanban-skill-legend" });
-      const cur = legend.createEl("div", { cls: "kanban-skill-legend-item" });
-      cur.createEl("span", { cls: "kanban-skill-legend-line current" });
-      cur.createEl("span", { text: t("skill.now") });
-      const cmp = legend.createEl("div", { cls: "kanban-skill-legend-item" });
-      cmp.createEl("span", { cls: "kanban-skill-legend-line compare" });
-      cmp.createEl("span", { text: compareLabel });
+      const legend = el.createDiv({ cls: "kanban-skill-legend" });
+      const cur = legend.createDiv({ cls: "kanban-skill-legend-item" });
+      cur.createSpan({ cls: "kanban-skill-legend-line current" });
+      cur.createSpan({ text: t("skill.now") });
+      const cmp = legend.createDiv({ cls: "kanban-skill-legend-item" });
+      cmp.createSpan({ cls: "kanban-skill-legend-line compare" });
+      cmp.createSpan({ text: compareLabel });
     }
 
-    const statsGrid = el.createEl("div", { cls: "kanban-skill-stats" });
+    const statsGrid = el.createDiv({ cls: "kanban-skill-stats" });
     labels.forEach((label) => {
       const cur = scores[label.id] ?? 0;
       const cmp = compareScores?.[label.id] ?? 0;
       const delta = cur - cmp;
-      const stat = statsGrid.createEl("div", { cls: "kanban-skill-stat" });
+      const stat = statsGrid.createDiv({ cls: "kanban-skill-stat" });
       stat.style.setProperty("--lc", label.color);
-      stat.createEl("span", { cls: "kanban-skill-stat-dot" });
-      stat.createEl("span", { cls: "kanban-skill-stat-name", text: label.name });
-      stat.createEl("span", { cls: "kanban-skill-stat-val", text: String(cur) });
+      stat.createSpan({ cls: "kanban-skill-stat-dot" });
+      stat.createSpan({ cls: "kanban-skill-stat-name", text: label.name });
+      stat.createSpan({ cls: "kanban-skill-stat-val", text: String(cur) });
       if (compareScores && delta !== 0) {
-        stat.createEl("span", { cls: `kanban-skill-stat-delta ${delta > 0 ? "pos" : "neg"}`, text: delta > 0 ? `+${delta}` : String(delta) });
+        stat.createSpan({ cls: `kanban-skill-stat-delta ${delta > 0 ? "pos" : "neg"}`, text: delta > 0 ? `+${delta}` : String(delta) });
       }
     });
 
     const total = allVals.reduce((a, b) => a + b, 0);
     const cmpTotal = cmpVals.reduce((a, b) => a + b, 0);
     const totalDelta = total - cmpTotal;
-    const totalRow = el.createEl("div", { cls: "kanban-skill-total" });
-    totalRow.createEl("span", { text: t("skill.total") });
+    const totalRow = el.createDiv({ cls: "kanban-skill-total" });
+    totalRow.createSpan({ text: t("skill.total") });
     totalRow.createEl("strong", { text: String(total) });
     if (compareScores && totalDelta !== 0) {
-      totalRow.createEl("span", { cls: `kanban-skill-stat-delta ${totalDelta > 0 ? "pos" : "neg"}`, text: totalDelta > 0 ? ` +${totalDelta}` : ` ${totalDelta}` });
+      totalRow.createSpan({ cls: `kanban-skill-stat-delta ${totalDelta > 0 ? "pos" : "neg"}`, text: totalDelta > 0 ? ` +${totalDelta}` : ` ${totalDelta}` });
     }
   }
 
@@ -1326,7 +1320,7 @@ export class KanbanSkillChartView extends ItemView {
       const nameEl = svgEl("text", { "text-anchor": anchor, "font-size": "11", "font-weight": "600", fill: "currentColor" });
       lines.forEach((line, li) => {
         const tspan = svgEl("tspan", { x: tpX.toFixed(1), y: (tpY - 4 + li * lineH).toFixed(1) });
-        tspan.textContent = escSvg(line);
+        tspan.textContent = line;
         nameEl.appendChild(tspan);
       });
       svg.appendChild(nameEl);
@@ -1351,7 +1345,7 @@ class InputModal extends Modal {
     const input = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.def } });
     input.focus();
     input.select();
-    const btns = el.createEl("div", { cls: "kanban-modal-btns" });
+    const btns = el.createDiv({ cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
     const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: t("common.ok") });
     ok.addEventListener("click", () => { const v = input.value.trim(); if (v) { this.cb(v); this.close(); } });
@@ -1367,7 +1361,7 @@ class ConfirmModal extends Modal {
     el.addClass("kanban-modal");
     el.createEl("h3", { cls: "kanban-modal-title", text: this.title });
     el.createEl("p", { cls: "kanban-modal-message", text: this.message });
-    const btns = el.createEl("div", { cls: "kanban-modal-btns" });
+    const btns = el.createDiv({ cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
     btns.createEl("button", { cls: "kb-btn kb-btn-danger", text: t("common.delete") }).addEventListener("click", () => { this.onConfirm(); this.close(); });
   }
@@ -1388,17 +1382,17 @@ class ColumnModal extends Modal {
     nameInput.focus();
     nameInput.select();
 
-    const doneRow = el.createEl("div", { cls: "kanban-modal-done-row" });
-    const doneInfo = doneRow.createEl("div", { cls: "kanban-modal-done-info" });
-    doneInfo.createEl("span", { cls: "kanban-modal-label", text: t("colModal.markDone") });
-    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: t("colModal.markDoneHint") });
+    const doneRow = el.createDiv({ cls: "kanban-modal-done-row" });
+    const doneInfo = doneRow.createDiv({ cls: "kanban-modal-done-info" });
+    doneInfo.createSpan({ cls: "kanban-modal-label", text: t("colModal.markDone") });
+    doneInfo.createSpan({ cls: "kanban-modal-done-hint", text: t("colModal.markDoneHint") });
 
     const toggleWrap = doneRow.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
     toggleInput.checked = this.opts.isDone;
-    toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
+    toggleWrap.createSpan({ cls: "kanban-skill-toggle-track" });
 
-    const btns = el.createEl("div", { cls: "kanban-modal-btns" });
+    const btns = el.createDiv({ cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
     const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: t("common.ok") });
     ok.addEventListener("click", () => {
@@ -1431,12 +1425,12 @@ class CardModal extends Modal {
 
     if (this.allLabels.length) {
       el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.labels") });
-      const grid = el.createEl("div", { cls: "kanban-modal-chips" });
+      const grid = el.createDiv({ cls: "kanban-modal-chips" });
       this.allLabels.forEach((label) => {
-        const chip = grid.createEl("div", { cls: "kanban-modal-chip" + (selected.has(label.id) ? " selected" : "") });
+        const chip = grid.createDiv({ cls: "kanban-modal-chip" + (selected.has(label.id) ? " selected" : "") });
         chip.style.setProperty("--lc", label.color);
-        chip.createEl("span", { cls: "kanban-chip-dot" });
-        chip.createEl("span", { text: label.name });
+        chip.createSpan({ cls: "kanban-chip-dot" });
+        chip.createSpan({ text: label.name });
         chip.addEventListener("click", () => {
           if (selected.has(label.id)) { selected.delete(label.id); chip.removeClass("selected"); }
           else { selected.add(label.id); chip.addClass("selected"); }
@@ -1447,7 +1441,7 @@ class CardModal extends Modal {
     // Eisenhower quadrant
     el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.ehCategory") });
     let quadrant: EisenhowerQuadrant | undefined = this.card?.quadrant;
-    const qGrid = el.createEl("div", { cls: "kanban-modal-chips" });
+    const qGrid = el.createDiv({ cls: "kanban-modal-chips" });
     const qChips = new Map<string, HTMLElement>();
     const syncQ = () => {
       qChips.forEach((chip, id) => {
@@ -1456,10 +1450,10 @@ class CardModal extends Modal {
       });
     };
     const addQChip = (id: string, name: string, color: string, hint: string) => {
-      const chip = qGrid.createEl("div", { cls: "kanban-modal-chip", attr: { title: hint } });
+      const chip = qGrid.createDiv({ cls: "kanban-modal-chip", attr: { title: hint } });
       chip.style.setProperty("--lc", color);
-      chip.createEl("span", { cls: "kanban-chip-dot" });
-      chip.createEl("span", { text: name });
+      chip.createSpan({ cls: "kanban-chip-dot" });
+      chip.createSpan({ text: name });
       chip.addEventListener("click", () => {
         quadrant = id === "none" ? undefined : (id as EisenhowerQuadrant);
         syncQ();
@@ -1470,7 +1464,7 @@ class CardModal extends Modal {
     EISENHOWER_QUADRANTS.forEach((q) => addQChip(q.id, q.name, q.color, q.hint));
     syncQ();
 
-    const btns = el.createEl("div", { cls: "kanban-modal-btns" });
+    const btns = el.createDiv({ cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
     const save = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: this.card ? t("cardModal.save") : t("cardModal.create") });
     save.addEventListener("click", () => {
@@ -1567,7 +1561,7 @@ export default class KanbanTodoPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    const loaded: Partial<KanbanPluginSettings> = await this.loadData();
+    const loaded = (await this.loadData()) as Partial<KanbanPluginSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
     if (!this.settings.labels) this.settings.labels = DEFAULT_SETTINGS.labels;
     if (!this.settings.skillData) this.settings.skillData = { scores: {}, snapshots: [] };
@@ -1619,7 +1613,7 @@ class KanbanSettingTab extends PluginSettingTab {
 
     new Setting(el).setName(t("settings.labels")).setHeading();
     el.createEl("p", { cls: "setting-item-description", text: t("settings.labelsDesc") });
-    const list = el.createEl("div", { cls: "kanban-settings-labels" });
+    const list = el.createDiv({ cls: "kanban-settings-labels" });
     this.renderLabels(list);
 
     new Setting(el).addButton((b) =>
@@ -1644,7 +1638,7 @@ class KanbanSettingTab extends PluginSettingTab {
   renderLabels(container: HTMLElement) {
     container.empty();
     this.plugin.settings.labels.forEach((label, idx) => {
-      const row = container.createEl("div", { cls: "kanban-settings-row" });
+      const row = container.createDiv({ cls: "kanban-settings-row" });
 
       const colorInput = row.createEl("input", { cls: "kanban-settings-color", attr: { type: "color", value: label.color } });
       colorInput.addEventListener("input", () => {
@@ -1660,7 +1654,7 @@ class KanbanSettingTab extends PluginSettingTab {
       });
       nameInput.addEventListener("input", () => { preview.textContent = nameInput.value || label.name; });
 
-      const preview = row.createEl("span", { cls: "kanban-label-tag", text: label.name });
+      const preview = row.createSpan({ cls: "kanban-label-tag", text: label.name });
       preview.style.setProperty("--lc", label.color);
 
       const del = row.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("settings.remove") } });

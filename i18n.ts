@@ -7,7 +7,7 @@
 // ".other", picked by tp(base, n). Write whole sentences with placeholders rather
 // than gluing fragments together — German word order differs from English.
 
-import * as obsidian from "obsidian";
+import { getLanguage } from "obsidian";
 
 const en = {
   // Board
@@ -507,16 +507,9 @@ export const LANGUAGE_NAMES: Record<Language, string> = { en: "English", de: "De
 
 let current: Language = "en";
 
-/** Obsidian's own UI language. getLanguage() exists since Obsidian 1.8.7; older
- *  versions keep the choice in localStorage under "language". */
+/** Obsidian's own UI language (getLanguage() needs Obsidian 1.8.7, the plugin's minAppVersion). */
 export function obsidianLanguage(): Language {
-  let code = "en";
-  const api = obsidian as unknown as { getLanguage?: () => string };
-  try {
-    if (typeof api.getLanguage === "function") code = api.getLanguage();
-    else code = window.localStorage.getItem("language") ?? "en";
-  } catch { /* fall back to English */ }
-  return code.toLowerCase().startsWith("de") ? "de" : "en";
+  return getLanguage().toLowerCase().startsWith("de") ? "de" : "en";
 }
 
 export function setLanguage(setting: LanguageSetting | undefined): void {
