@@ -1,10 +1,10 @@
 {
   "id": "kanban-todo-board",
   "name": "Kanban Todo Board",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "minAppVersion": "0.15.0",
-  "description": "Manage your todos in a customizable Kanban board with drag-and-drop support.",
+  "description": "Kanban boards stored as files in your vault, with an Eisenhower matrix, a completion log and a skill radar chart.",
   "author": "Jakob Eilts",
-  "authorUrl": "",
+  "authorUrl": "https://github.com/jakobeilts",
   "isDesktopOnly": false
 }

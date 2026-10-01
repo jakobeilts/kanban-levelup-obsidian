@@ -1,0 +1,19 @@
+# npm
+node_modules/
+package-lock.json.bak
+
+# build output
+# main.js is committed on purpose so the repo always contains a working build.
+# If you'd rather build only in CI, add "main.js" here and drop it from git.
+*.js.map
+dist/
+
+# obsidian / editors
+.obsidian/
+data.json
+
+# macOS
+.DS_Store
+
+# files the Claude desktop app drops into the working folder
+Claude outputs/

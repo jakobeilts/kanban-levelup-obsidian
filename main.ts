@@ -7,9 +7,13 @@ import {
   PluginSettingTab,
   Setting,
   TextFileView,
+  TFile,
   WorkspaceLeaf,
   setIcon,
 } from "obsidian";
+import { PriorityDuelModal } from "./duel-modal";
+import { LANGUAGE_NAMES, LanguageSetting, dateLocale, obsidianLanguage, setLanguage, t, tp } from "./i18n";
+import type { DuelComparison } from "./duel-ranker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +36,30 @@ export interface SkillData {
 export interface KanbanPluginSettings {
   labels: KanbanLabel[];
   skillData: SkillData;
+  /** UI language; "auto" follows Obsidian. */
+  language?: LanguageSetting;
+}
+
+export type EisenhowerQuadrant = "do" | "schedule" | "delegate" | "eliminate";
+
+export interface EisenhowerQuadrantDef {
+  id: EisenhowerQuadrant;
+  name: string;
+  hint: string;
+  color: string;
+}
+
+/** The four Eisenhower quadrants, in reading order of the matrix. */
+export const EISENHOWER_QUADRANTS: EisenhowerQuadrantDef[] = [
+  // Getters, so names follow the current language without rebuilding the list.
+  { id: "do",        get name() { return t("q.do.name"); },        get hint() { return t("q.do.hint"); },        color: "#ef4444" },
+  { id: "schedule",  get name() { return t("q.schedule.name"); },  get hint() { return t("q.schedule.hint"); },  color: "#10b981" },
+  { id: "delegate",  get name() { return t("q.delegate.name"); },  get hint() { return t("q.delegate.hint"); },  color: "#f59e0b" },
+  { id: "eliminate", get name() { return t("q.eliminate.name"); }, get hint() { return t("q.eliminate.hint"); }, color: "#6b7280" },
+];
+
+export function quadrantDef(id?: string): EisenhowerQuadrantDef | undefined {
+  return EISENHOWER_QUADRANTS.find((q) => q.id === id);
 }
 
 export interface KanbanCard {
@@ -41,6 +69,7 @@ export interface KanbanCard {
   createdAt: number;
   labelIds?: string[];
   completedAt?: number;
+  quadrant?: EisenhowerQuadrant;
 }
 
 export interface KanbanColumn {
@@ -49,6 +78,12 @@ export interface KanbanColumn {
   cards: KanbanCard[];
   color?: string;
   isDone?: boolean;
+  /**
+   * Card ids in the order the last priority duel produced. Cards not listed here
+   * were added later, so their position says nothing about their priority and the
+   * next duel places them from scratch.
+   */
+  rankedIds?: string[];
 }
 
 export interface KanbanBoard {
@@ -104,9 +139,9 @@ const DEFAULT_SETTINGS: KanbanPluginSettings = {
 function defaultBoard(): KanbanBoard {
   return {
     columns: [
-      { id: generateId(), name: "Backlog", cards: [], color: "#6366f1" },
-      { id: generateId(), name: "In progress", cards: [], color: "#f59e0b" },
-      { id: generateId(), name: "Done", cards: [], color: "#10b981", isDone: true },
+      { id: generateId(), name: t("board.defaultBacklog"), cards: [], color: "#6366f1" },
+      { id: generateId(), name: t("board.defaultInProgress"), cards: [], color: "#f59e0b" },
+      { id: generateId(), name: t("board.defaultDone"), cards: [], color: "#10b981", isDone: true },
     ],
   };
 }
@@ -133,7 +168,7 @@ export class KanbanView extends TextFileView {
   }
 
   getViewType() { return KANBAN_VIEW_TYPE; }
-  getDisplayText() { return this.file?.basename ?? "Kanban board"; }
+  getDisplayText() { return this.file?.basename ?? t("board.displayFallback"); }
   getIcon() { return "layout-dashboard"; }
   getViewData(): string { return JSON.stringify(this.boardData, null, 2); }
 
@@ -142,12 +177,20 @@ export class KanbanView extends TextFileView {
       const parsed: KanbanBoard = JSON.parse(data);
       this.boardData = parsed?.columns ? parsed : defaultBoard();
     } catch { this.boardData = defaultBoard(); }
+    if (this.file) this.plugin.lastBoardPath = this.file.path;
     this.render();
   }
 
   clear() { this.boardData = defaultBoard(); }
 
-  private persist(): void { this.requestSave(); this.render(); }
+  private persist(): void {
+    this.requestSave();
+    this.render();
+    void this.plugin.refreshEisenhowerView();
+  }
+
+  /** Save + re-render after another view (e.g. the Eisenhower matrix) mutated this board. */
+  applyExternalChange(): void { this.requestSave(); this.render(); }
 
   private async moveCard(card: KanbanCard, fromCol: KanbanColumn, toCol: KanbanColumn, toIndex?: number): Promise<void> {
     const fromIdx = fromCol.cards.findIndex((c) => c.id === card.id);
@@ -184,12 +227,12 @@ export class KanbanView extends TextFileView {
     el.addClass("kanban-root");
 
     const hdr = el.createEl("div", { cls: "kanban-header" });
-    hdr.createEl("span", { cls: "kanban-header-title", text: this.file?.basename ?? "Board" });
-    const renameBtn = hdr.createEl("button", { cls: "kanban-rename-btn", attr: { title: "Rename board" } });
+    hdr.createEl("span", { cls: "kanban-header-title", text: this.file?.basename ?? t("board.fallbackTitle") });
+    const renameBtn = hdr.createEl("button", { cls: "kanban-rename-btn", attr: { title: t("board.rename") } });
     setIcon(renameBtn, "pencil");
     renameBtn.addEventListener("click", () => {
       if (!this.file) return;
-      new InputModal(this.app, "Rename board", this.file.basename, (val) => {
+      new InputModal(this.app, t("board.rename"), this.file.basename, (val) => {
         if (this.file) {
           const newPath = this.file.parent?.path ? `${this.file.parent.path}/${val}.kanban` : `${val}.kanban`;
           void this.app.fileManager.renameFile(this.file, newPath);
@@ -233,10 +276,10 @@ export class KanbanView extends TextFileView {
       this.dropColumnAt(this.boardData.columns.length);
     });
 
-    const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: "Add column" } });
+    const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: t("board.addColumn") } });
     setIcon(addColBtn, "plus");
     addColBtn.addEventListener("click", () => {
-      new ColumnModal(this.app, { name: "New column", isDone: false }, ({ name, isDone }) => {
+      new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone }) => {
         this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
         this.persist();
       }).open();
@@ -278,7 +321,7 @@ export class KanbanView extends TextFileView {
       this.contentEl.querySelectorAll(".col-gap-active").forEach((n) => n.removeClass("col-gap-active"));
     });
 
-    const dragHandle = hdr.createEl("span", { cls: "kanban-col-drag-handle", attr: { title: "Drag to reorder" } });
+    const dragHandle = hdr.createEl("span", { cls: "kanban-col-drag-handle", attr: { title: t("col.dragToReorder") } });
     setIcon(dragHandle, "grip-vertical");
 
     const accent = hdr.createEl("span", { cls: "kanban-col-accent" });
@@ -286,7 +329,7 @@ export class KanbanView extends TextFileView {
 
     const titleEl = hdr.createEl("span", { cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
-      hdr.createEl("span", { cls: "kanban-done-tag", text: "Done", attr: { title: "This is the done column" } });
+      hdr.createEl("span", { cls: "kanban-done-tag", text: t("col.doneTag"), attr: { title: t("col.doneTagTitle") } });
     }
 
     titleEl.addEventListener("dblclick", () => {
@@ -318,14 +361,25 @@ export class KanbanView extends TextFileView {
     const badge = hdr.createEl("span", { cls: "kanban-col-badge", text: String(col.cards.length) });
     badge.style.background = col.color ?? "#6366f1";
 
-    const delColBtn = hdr.createEl("button", { cls: "kb-icon-btn", attr: { title: "Delete column" } });
+    if (!col.isDone) {
+      const duelBtn = hdr.createEl("button", {
+        cls: "kb-icon-btn kb-duel-open",
+        attr: { title: col.cards.length < 2 ? t("col.duelNeedsTwo") : t("col.duel") },
+      });
+      setIcon(duelBtn, "swords");
+      if (!duelBtn.querySelector("svg")) setIcon(duelBtn, "list-ordered"); // older Obsidian icon sets
+      duelBtn.disabled = col.cards.length < 2;
+      duelBtn.addEventListener("click", (e) => { e.stopPropagation(); this.openDuel(col); });
+    }
+
+    const delColBtn = hdr.createEl("button", { cls: "kb-icon-btn", attr: { title: t("col.delete") } });
     setIcon(delColBtn, "trash-2");
     delColBtn.addEventListener("click", () => {
       if (col.cards.length > 0) {
         new ConfirmModal(
           this.app,
-          `Delete "${col.name}"?`,
-          `This will permanently delete ${col.cards.length} card(s).`,
+          t("col.deleteTitle", { name: col.name }),
+          tp("col.deleteMsg", col.cards.length),
           () => void this.deleteColumn(col)
         ).open();
       } else {
@@ -371,17 +425,17 @@ export class KanbanView extends TextFileView {
       const archivedNote = cardsEl.createEl("div", { cls: "kanban-archived-note" });
       const archiveIcon = archivedNote.createEl("span");
       setIcon(archiveIcon, "archive");
-      archivedNote.createEl("span", { text: ` ${hiddenCount} completed item${hiddenCount > 1 ? "s" : ""} archived` });
+      archivedNote.createEl("span", { text: " " + tp("col.archived", hiddenCount) });
     }
 
     const addBtn = colEl.createEl("button", { cls: "kanban-add-card-btn" });
     const plusIcon = addBtn.createEl("span");
     setIcon(plusIcon, "plus");
-    addBtn.createEl("span", { text: "Add card" });
+    addBtn.createEl("span", { text: t("col.addCard") });
     addBtn.addEventListener("click", () => {
-      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds) => {
+      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds, quadrant) => {
         void (async () => {
-          const card: KanbanCard = { id: generateId(), title, description: desc, labelIds, createdAt: Date.now() };
+          const card: KanbanCard = { id: generateId(), title, description: desc, labelIds, quadrant, createdAt: Date.now() };
           if (col.isDone) {
             card.completedAt = Date.now();
             if (labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
@@ -392,6 +446,52 @@ export class KanbanView extends TextFileView {
         })();
       }).open();
     });
+  }
+
+  /** Key for an unfinished duel session: survives closing the modal, not a restart. */
+  private duelKey(col: KanbanColumn): string { return `${this.file?.path ?? ""}::${col.id}`; }
+
+  openDuel(col: KanbanColumn): void {
+    if (col.cards.length < 2) { new Notice(t("notice.duelNeedsTwo")); return; }
+    const key = this.duelKey(col);
+    const ranked = col.rankedIds ? new Set(col.rankedIds) : null;
+    new PriorityDuelModal(this.app, {
+      columnName: col.name,
+      cards: col.cards.slice(),
+      labels: this.plugin.settings.labels,
+      quadrantDef,
+      resume: this.plugin.duelSessions.get(key) ?? [],
+      // Never duelled: the hand-made order is all we know, so every card counts as placed.
+      unplaced: new Set(ranked ? col.cards.filter((c) => !ranked.has(c.id)).map((c) => c.id) : []),
+      trustedOrder: ranked !== null,
+      onProgress: (comps) => {
+        if (comps.length) this.plugin.duelSessions.set(key, comps);
+        else this.plugin.duelSessions.delete(key);
+      },
+      onApply: (orderedIds) => {
+        this.plugin.duelSessions.delete(key);
+        this.applyColumnOrder(col.id, orderedIds);
+      },
+      onDiscard: () => this.plugin.duelSessions.delete(key),
+    }).open();
+  }
+
+  /**
+   * Reorder a column by card id. Looked up again by id because the board may have
+   * been reloaded or edited (e.g. from the Eisenhower matrix) while the duel was open:
+   * cards added meanwhile go to the bottom, cards removed meanwhile are ignored.
+   */
+  private applyColumnOrder(colId: string, orderedIds: string[]): void {
+    const col = this.boardData.columns.find((c) => c.id === colId);
+    if (!col) { new Notice(t("notice.columnGone")); return; }
+    const rank = new Map(orderedIds.map((id, i) => [id, i] as [string, number]));
+    const before = col.cards.map((c) => c.id).join();
+    const ranked = col.cards.filter((c) => rank.has(c.id)).sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    const added = col.cards.filter((c) => !rank.has(c.id));
+    col.cards = ranked.concat(added);
+    col.rankedIds = ranked.map((c) => c.id);
+    this.persist();
+    new Notice(col.cards.map((c) => c.id).join() === before ? t("notice.orderConfirmed", { name: col.name }) : t("notice.reordered", { name: col.name }));
   }
 
   private async deleteColumn(col: KanbanColumn): Promise<void> {
@@ -462,9 +562,14 @@ export class KanbanView extends TextFileView {
     body.createEl("div", { cls: "kanban-card-title", text: card.title });
     if (card.description) body.createEl("div", { cls: "kanban-card-desc", text: card.description });
 
+    const qDef = quadrantDef(card.quadrant);
     const cardLabels = this.plugin.settings.labels.filter((l) => card.labelIds?.includes(l.id));
-    if (cardLabels.length) {
+    if (qDef || cardLabels.length) {
       const row = el.createEl("div", { cls: "kanban-card-labels" });
+      if (qDef) {
+        const qTag = row.createEl("span", { cls: "kanban-label-tag kanban-eh-tag", text: qDef.name, attr: { title: t("card.ehTitle", { hint: qDef.hint }) } });
+        qTag.style.setProperty("--lc", qDef.color);
+      }
       cardLabels.forEach((l) => {
         const tag = row.createEl("span", { cls: "kanban-label-tag", text: l.name });
         tag.style.setProperty("--lc", l.color);
@@ -476,24 +581,25 @@ export class KanbanView extends TextFileView {
 
     const colIdx = this.boardData.columns.findIndex((c) => c.id === col.id);
     if (colIdx > 0) {
-      const lb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: "Move left" } });
+      const lb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.moveLeft") } });
       setIcon(lb, "chevron-left");
       lb.addEventListener("click", (e) => { e.stopPropagation(); void this.moveCard(card, col, this.boardData.columns[colIdx - 1]); });
     }
     if (colIdx < this.boardData.columns.length - 1) {
-      const rb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: "Move right" } });
+      const rb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.moveRight") } });
       setIcon(rb, "chevron-right");
       rb.addEventListener("click", (e) => { e.stopPropagation(); void this.moveCard(card, col, this.boardData.columns[colIdx + 1]); });
     }
 
-    const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: "Edit" } });
+    const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.edit") } });
     setIcon(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds) => {
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant) => {
         void (async () => {
           if (col.isDone && card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
           card.title = title; card.description = desc; card.labelIds = labelIds;
+          if (quadrant) card.quadrant = quadrant; else delete card.quadrant;
           if (col.isDone && labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
           this.persist();
           void this.plugin.refreshAllDoneView();
@@ -501,7 +607,7 @@ export class KanbanView extends TextFileView {
       }).open();
     });
 
-    const delBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: "Delete" } });
+    const delBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("card.delete") } });
     setIcon(delBtn, "x");
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -534,7 +640,7 @@ export class AllDoneTodosView extends ItemView {
   }
 
   getViewType() { return ALL_DONE_VIEW_TYPE; }
-  getDisplayText() { return "All done todos"; }
+  getDisplayText() { return t("done.title"); }
   getIcon() { return "check-square"; }
 
   async onOpen() { await this.render(); }
@@ -545,7 +651,7 @@ export class AllDoneTodosView extends ItemView {
     el.empty();
     el.addClass("kanban-done-root");
 
-    el.createEl("h2", { cls: "kanban-done-title", text: "All done todos" });
+    el.createEl("h2", { cls: "kanban-done-title", text: t("done.title") });
 
     const entries: DoneEntry[] = [];
     const files = this.app.vault.getFiles().filter((f) => f.extension === "kanban");
@@ -565,7 +671,7 @@ export class AllDoneTodosView extends ItemView {
     }
 
     if (entries.length === 0) {
-      el.createEl("div", { cls: "kanban-done-empty", text: "No completed todos yet. Mark a column as 'done' on your board and complete some tasks!" });
+      el.createEl("div", { cls: "kanban-done-empty", text: t("done.empty") });
       return;
     }
 
@@ -573,12 +679,12 @@ export class AllDoneTodosView extends ItemView {
 
     const groups = new Map<string, DoneEntry[]>();
     for (const entry of entries) {
-      const dateKey = new Date(entry.completedAt).toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+      const dateKey = new Date(entry.completedAt).toLocaleDateString(dateLocale(), { weekday: "long", year: "numeric", month: "long", day: "numeric" });
       if (!groups.has(dateKey)) groups.set(dateKey, []);
       groups.get(dateKey)?.push(entry);
     }
 
-    el.createEl("div", { cls: "kanban-done-count", text: `${entries.length} completed todo${entries.length !== 1 ? "s" : ""} across ${files.length} board${files.length !== 1 ? "s" : ""}` });
+    el.createEl("div", { cls: "kanban-done-count", text: `${tp("done.todos", entries.length)} ${tp("done.boards", files.length)}` });
 
     for (const [dateKey, dayEntries] of groups) {
       const section = el.createEl("div", { cls: "kanban-done-section" });
@@ -599,9 +705,383 @@ export class AllDoneTodosView extends ItemView {
           tag.style.setProperty("--lc", l.color);
         });
         meta.createEl("span", { cls: "kanban-done-board", text: entry.boardName });
-        meta.createEl("span", { cls: "kanban-done-time", text: new Date(entry.completedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) });
+        meta.createEl("span", { cls: "kanban-done-time", text: new Date(entry.completedAt).toLocaleTimeString(dateLocale(), { hour: "2-digit", minute: "2-digit" }) });
       }
     }
+  }
+}
+
+// ─── Eisenhower matrix view ───────────────────────────────────────────────────
+
+export const EISENHOWER_VIEW_TYPE = "kanban-eisenhower";
+
+interface MatrixEntry {
+  card: KanbanCard;
+  column: KanbanColumn;
+}
+
+export class EisenhowerMatrixView extends ItemView {
+  plugin: KanbanTodoPlugin;
+  private board: KanbanBoard | null = null;
+  private boardFile: TFile | null = null;
+  private dragged: KanbanCard | null = null;
+  /** Guards against overlapping renders clobbering each other's DOM. */
+  private renderSeq = 0;
+  /** Card ids whose description the user expanded — kept across re-renders. */
+  private expanded = new Set<string>();
+
+  constructor(leaf: WorkspaceLeaf, plugin: KanbanTodoPlugin) {
+    super(leaf);
+    this.plugin = plugin;
+  }
+
+  getViewType() { return EISENHOWER_VIEW_TYPE; }
+  getDisplayText() { return t("eh.title"); }
+  getIcon() { return "layout-grid"; }
+
+  async onOpen() {
+    // Re-resolve the target board whenever this view is brought to the front,
+    // so it follows whichever board the user last worked on.
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        if (leaf === this.leaf) void this.render();
+      })
+    );
+    await this.render();
+  }
+
+  async onClose() { /* nothing to clean up */ }
+
+  private boardFiles(): TFile[] {
+    return this.app.vault
+      .getFiles()
+      .filter((f) => f.extension === "kanban")
+      .sort((a, b) => a.basename.localeCompare(b.basename));
+  }
+
+  /** The board this view operates on: the last opened one, else the first in the vault. */
+  private resolveFile(files: TFile[]): TFile | null {
+    if (!files.length) return null;
+    const last = this.plugin.lastBoardPath;
+    return files.find((f) => f.path === last) ?? files[0];
+  }
+
+  /** An open KanbanView for that file, if any — it owns the authoritative in-memory board. */
+  private liveView(file: TFile): KanbanView | null {
+    for (const leaf of this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)) {
+      const v = leaf.view;
+      if (v instanceof KanbanView && v.file?.path === file.path) return v;
+    }
+    return null;
+  }
+
+  private findCard(board: KanbanBoard, cardId: string): KanbanCard | null {
+    for (const col of board.columns ?? []) {
+      const found = col.cards?.find((c) => c.id === cardId);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  /**
+   * Mutate a single card and write it back.
+   * Never writes this view's whole board snapshot to disk — a snapshot can be stale,
+   * which would silently revert edits made elsewhere in the meantime.
+   */
+  private async withBoard<T>(mutate: (board: KanbanBoard) => T | null): Promise<T | null> {
+    const file = this.boardFile;
+    if (!file) return null;
+
+    const live = this.liveView(file);
+    if (live) {
+      // Route through the open view so its state and ours never diverge.
+      const result = mutate(live.boardData);
+      if (result === null) return null;
+      live.applyExternalChange();
+      return result;
+    }
+
+    let board: KanbanBoard;
+    try {
+      board = JSON.parse(await this.app.vault.read(file));
+    } catch {
+      new Notice(t("eh.cannotRead", { name: file.basename }));
+      return null;
+    }
+    const result = mutate(board);
+    if (result === null) return null;
+    await this.app.vault.modify(file, JSON.stringify(board, null, 2));
+    return result;
+  }
+
+  private async applyCardChange(cardId: string, mutate: (card: KanbanCard) => void): Promise<void> {
+    await this.withBoard((board) => {
+      const target = this.findCard(board, cardId);
+      if (!target) return null;
+      mutate(target);
+      return true;
+    });
+  }
+
+  /**
+   * Move a card into the board's done column — the same transition the board makes
+   * when a card is dragged there, including completion timestamp and skill scores.
+   */
+  private async completeCard(cardId: string): Promise<void> {
+    const moved = await this.withBoard((board) => {
+      const doneCol = board.columns.find((c) => c.isDone);
+      if (!doneCol) {
+        new Notice(t("eh.noDoneColumn"));
+        return null;
+      }
+      for (const col of board.columns) {
+        const idx = col.cards.findIndex((c) => c.id === cardId);
+        if (idx === -1) continue;
+        if (col.isDone) return null; // already done
+        const [card] = col.cards.splice(idx, 1);
+        card.completedAt = Date.now();
+        doneCol.cards.push(card);
+        return { title: card.title, labelIds: card.labelIds ?? [] };
+      }
+      return null;
+    });
+
+    if (!moved) return;
+
+    if (moved.labelIds.length) {
+      try {
+        await this.plugin.updateSkillScores(moved.labelIds, +1);
+      } catch (e) {
+        console.error("Failed to update skill scores:", e);
+      }
+    }
+    void this.plugin.refreshAllDoneView();
+    new Notice(t("eh.completed", { title: moved.title }));
+    await this.render();
+  }
+
+  async render(): Promise<void> {
+    const seq = ++this.renderSeq;
+
+    // Resolve everything that needs awaiting BEFORE touching the DOM. Two renders can
+    // overlap (onOpen and the active-leaf-change event both fire when the view opens);
+    // with an await between empty() and the first append, they would interleave and
+    // paint the matrix twice.
+    const files = this.boardFiles();
+    const file = this.resolveFile(files);
+    let board: KanbanBoard | null = null;
+    if (file) {
+      const live = this.liveView(file);
+      if (live) {
+        board = live.boardData;
+      } else {
+        try {
+          const parsed: KanbanBoard = JSON.parse(await this.app.vault.read(file));
+          board = parsed?.columns ? parsed : null;
+        } catch {
+          board = null;
+        }
+      }
+    }
+    if (seq !== this.renderSeq) return; // a newer render started while we were reading
+
+    this.boardFile = file;
+    this.board = board;
+
+    const el = this.contentEl;
+    el.empty();
+    el.addClass("kanban-eh-root");
+
+    const hdr = el.createEl("div", { cls: "kanban-eh-hdr" });
+    hdr.createEl("h2", { cls: "kanban-eh-title", text: t("eh.title") });
+
+    if (!file) {
+      el.createEl("div", {
+        cls: "kanban-eh-empty",
+        text: t("eh.noBoard"),
+      });
+      return;
+    }
+
+    if (!board) {
+      el.createEl("div", { cls: "kanban-eh-empty", text: t("eh.cannotRead", { name: file.basename }) });
+      return;
+    }
+
+    const picker = hdr.createEl("select", { cls: "kanban-eh-select", attr: { title: t("eh.boardPicker") } });
+    files.forEach((f) => {
+      const opt = picker.createEl("option", { text: f.basename, attr: { value: f.path } });
+      if (f.path === file.path) opt.selected = true;
+    });
+    picker.addEventListener("change", () => {
+      this.plugin.lastBoardPath = picker.value;
+      void this.render();
+    });
+
+    // Only open work belongs in the matrix \u2014 done columns are covered by the
+    // all done page and the skill chart.
+    const entries: MatrixEntry[] = [];
+    for (const col of board.columns) {
+      if (col.isDone) continue;
+      for (const card of col.cards) entries.push({ card, column: col });
+    }
+    hdr.createEl("span", {
+      cls: "kanban-eh-count",
+      text: tp("eh.openTasks", entries.length),
+    });
+
+    const grid = el.createEl("div", { cls: "kanban-eh-grid" });
+    grid.createEl("div", { cls: "kanban-eh-corner" });
+    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-x", text: t("eh.urgent") });
+    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-x", text: t("eh.notUrgent") });
+    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-y", text: t("eh.important") });
+    this.renderQuadrant(grid, "do", entries);
+    this.renderQuadrant(grid, "schedule", entries);
+    grid.createEl("div", { cls: "kanban-eh-axis kanban-eh-axis-y", text: t("eh.notImportant") });
+    this.renderQuadrant(grid, "delegate", entries);
+    this.renderQuadrant(grid, "eliminate", entries);
+
+    const unassigned = entries.filter((e) => !quadrantDef(e.card.quadrant));
+    const tray = el.createEl("div", { cls: "kanban-eh-tray" });
+    const trayHdr = tray.createEl("div", { cls: "kanban-eh-tray-hdr" });
+    trayHdr.createEl("span", { cls: "kanban-eh-tray-title", text: t("eh.notCategorised") });
+    trayHdr.createEl("span", { cls: "kanban-eh-quad-count", text: String(unassigned.length) });
+    const trayBody = tray.createEl("div", { cls: "kanban-eh-tray-body" });
+    this.makeDropTarget(tray, undefined);
+    if (!unassigned.length) {
+      trayBody.createEl("div", { cls: "kanban-eh-quad-empty", text: t("eh.allCategorised") });
+    }
+    unassigned.forEach((e) => this.renderCard(trayBody, e));
+  }
+
+  private renderQuadrant(grid: HTMLElement, id: EisenhowerQuadrant, entries: MatrixEntry[]): void {
+    const def = quadrantDef(id) ?? EISENHOWER_QUADRANTS[0];
+    const items = entries.filter((e) => e.card.quadrant === id);
+
+    const cell = grid.createEl("div", { cls: "kanban-eh-quad" });
+    cell.style.setProperty("--qc", def.color);
+
+    const hdr = cell.createEl("div", { cls: "kanban-eh-quad-hdr" });
+    hdr.createEl("span", { cls: "kanban-eh-quad-dot" });
+    hdr.createEl("span", { cls: "kanban-eh-quad-name", text: def.name });
+    hdr.createEl("span", { cls: "kanban-eh-quad-hint", text: def.hint });
+    hdr.createEl("span", { cls: "kanban-eh-quad-count", text: String(items.length) });
+
+    const body = cell.createEl("div", { cls: "kanban-eh-quad-body" });
+    this.makeDropTarget(cell, id);
+    if (!items.length) body.createEl("div", { cls: "kanban-eh-quad-empty", text: t("eh.dropHere") });
+    items.forEach((e) => this.renderCard(body, e));
+  }
+
+  private makeDropTarget(host: HTMLElement, quadrant: EisenhowerQuadrant | undefined): void {
+    host.addEventListener("dragover", (e) => {
+      if (!this.dragged) return;
+      e.preventDefault();
+      host.addClass("eh-drag-over");
+    });
+    host.addEventListener("dragleave", (e) => {
+      if (!(e.relatedTarget instanceof Node) || !host.contains(e.relatedTarget)) host.removeClass("eh-drag-over");
+    });
+    host.addEventListener("drop", (e) => {
+      e.preventDefault();
+      host.removeClass("eh-drag-over");
+      const card = this.dragged;
+      this.dragged = null;
+      if (!card || card.quadrant === quadrant) return;
+      void (async () => {
+        await this.applyCardChange(card.id, (c) => {
+          if (quadrant) c.quadrant = quadrant;
+          else delete c.quadrant;
+        });
+        await this.render();
+      })();
+    });
+  }
+
+  private renderCard(container: HTMLElement, entry: MatrixEntry): void {
+    const { card, column } = entry;
+    const el = container.createEl("div", { cls: "kanban-eh-card", attr: { draggable: "true" } });
+
+    el.addEventListener("dragstart", (e) => {
+      this.dragged = card;
+      el.addClass("dragging");
+      e.dataTransfer?.setData("text/plain", card.id);
+    });
+    el.addEventListener("dragend", () => {
+      el.removeClass("dragging");
+      this.dragged = null;
+      this.contentEl.querySelectorAll(".eh-drag-over").forEach((n) => n.removeClass("eh-drag-over"));
+    });
+
+    const body = el.createEl("div", { cls: "kanban-eh-card-body" });
+    const titleRow = body.createEl("div", { cls: "kanban-eh-card-titlerow" });
+
+    if (card.description) {
+      // Descriptions stay collapsed so the matrix keeps an overview density;
+      // clicking the card reveals one.
+      const chevron = titleRow.createEl("span", { cls: "kanban-eh-card-toggle" });
+      setIcon(chevron, "chevron-right");
+      titleRow.createEl("span", { cls: "kanban-eh-card-title", text: card.title });
+      const descEl = body.createEl("div", { cls: "kanban-eh-card-desc", text: card.description });
+
+      const sync = () => {
+        const open = this.expanded.has(card.id);
+        el.toggleClass("is-expanded", open);
+        el.setAttr("aria-expanded", String(open));
+        descEl.toggleClass("is-open", open);
+        chevron.setAttr("aria-label", open ? t("eh.hideDesc") : t("eh.showDesc"));
+      };
+      sync();
+
+      el.addClass("has-desc");
+      el.addEventListener("click", (e) => {
+        if (e.target instanceof Element && e.target.closest("button")) return;
+        if (this.expanded.has(card.id)) this.expanded.delete(card.id);
+        else this.expanded.add(card.id);
+        sync();
+      });
+    } else {
+      // Empty spacer of the same width, so titles line up whether or not a card
+      // has a description.
+      titleRow.createEl("span", { cls: "kanban-eh-card-toggle" });
+      titleRow.createEl("span", { cls: "kanban-eh-card-title", text: card.title });
+    }
+
+    const meta = el.createEl("div", { cls: "kanban-eh-card-meta" });
+    meta.createEl("span", { cls: "kanban-eh-card-col", text: column.name });
+    this.plugin.settings.labels
+      .filter((l) => card.labelIds?.includes(l.id))
+      .forEach((l) => {
+        const tag = meta.createEl("span", { cls: "kanban-label-tag", text: l.name });
+        tag.style.setProperty("--lc", l.color);
+      });
+
+    const actions = el.createEl("div", { cls: "kanban-eh-card-actions" });
+
+    const doneBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-done", attr: { title: t("eh.markDone") } });
+    setIcon(doneBtn, "check");
+    doneBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.completeCard(card.id);
+    });
+
+    const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("eh.editCard") } });
+    setIcon(editBtn, "pencil");
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant) => {
+        void (async () => {
+          await this.applyCardChange(card.id, (c) => {
+            c.title = title;
+            c.description = desc;
+            c.labelIds = labelIds;
+            if (quadrant) c.quadrant = quadrant;
+            else delete c.quadrant;
+          });
+          await this.render();
+        })();
+      }).open();
+    });
   }
 }
 
@@ -621,7 +1101,7 @@ export class KanbanSkillChartView extends ItemView {
   }
 
   getViewType() { return SKILL_CHART_VIEW_TYPE; }
-  getDisplayText() { return "Skill chart"; }
+  getDisplayText() { return t("skill.title"); }
   getIcon() { return "activity"; }
 
   async onOpen() { await this.maybeSnapshot(); this.render(); }
@@ -654,11 +1134,11 @@ export class KanbanSkillChartView extends ItemView {
     const { labels, skillData } = this.plugin.settings;
     const { scores } = skillData;
 
-    el.createEl("h2", { cls: "kanban-skill-title", text: "Skill chart" });
+    el.createEl("h2", { cls: "kanban-skill-title", text: t("skill.title") });
 
     const rangeSection = el.createEl("div", { cls: "kanban-skill-range" });
     const rangeHeader = rangeSection.createEl("div", { cls: "kanban-skill-range-hdr" });
-    rangeHeader.createEl("span", { cls: "kanban-skill-range-label", text: "Compare with period" });
+    rangeHeader.createEl("span", { cls: "kanban-skill-range-label", text: t("skill.compare") });
 
     const toggleWrap = rangeHeader.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
@@ -682,16 +1162,16 @@ export class KanbanSkillChartView extends ItemView {
       });
 
       const dateRow = rangeInputs.createEl("div", { cls: "kanban-skill-date-row" });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "From" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: t("skill.from") });
       const fromInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareFrom, max: this.compareTo } });
-      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: "To" });
+      dateRow.createEl("span", { cls: "kanban-skill-date-sep", text: t("skill.to") });
       const toInput = dateRow.createEl("input", { cls: "kanban-skill-date-input", attr: { type: "date", value: this.compareTo, max: toDateInputVal(new Date()) } });
       fromInput.addEventListener("change", () => { if (fromInput.value) { this.compareFrom = fromInput.value; this.render(); } });
       toInput.addEventListener("change", () => { if (toInput.value) { this.compareTo = toInput.value; this.render(); } });
     }
 
     if (labels.length === 0) {
-      el.createEl("div", { cls: "kanban-skill-empty", text: "No labels defined. Add labels in the plugin settings to use the skill chart." });
+      el.createEl("div", { cls: "kanban-skill-empty", text: t("skill.noLabels") });
       return;
     }
 
@@ -703,8 +1183,8 @@ export class KanbanSkillChartView extends ItemView {
       const fromSnap = this.closestSnapshot(fromTs);
       if (fromSnap) {
         compareScores = fromSnap.scores;
-        const fromFmt = new Date(this.compareFrom).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-        const toFmt = new Date(this.compareTo).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+        const fromFmt = new Date(this.compareFrom).toLocaleDateString(dateLocale(), { day: "2-digit", month: "short", year: "numeric" });
+        const toFmt = new Date(this.compareTo).toLocaleDateString(dateLocale(), { day: "2-digit", month: "short", year: "numeric" });
         compareLabel = `${fromFmt} – ${toFmt}`;
       }
     }
@@ -722,7 +1202,7 @@ export class KanbanSkillChartView extends ItemView {
       const legend = el.createEl("div", { cls: "kanban-skill-legend" });
       const cur = legend.createEl("div", { cls: "kanban-skill-legend-item" });
       cur.createEl("span", { cls: "kanban-skill-legend-line current" });
-      cur.createEl("span", { text: "Now" });
+      cur.createEl("span", { text: t("skill.now") });
       const cmp = legend.createEl("div", { cls: "kanban-skill-legend-item" });
       cmp.createEl("span", { cls: "kanban-skill-legend-line compare" });
       cmp.createEl("span", { text: compareLabel });
@@ -747,7 +1227,7 @@ export class KanbanSkillChartView extends ItemView {
     const cmpTotal = cmpVals.reduce((a, b) => a + b, 0);
     const totalDelta = total - cmpTotal;
     const totalRow = el.createEl("div", { cls: "kanban-skill-total" });
-    totalRow.createEl("span", { text: "Total completions: " });
+    totalRow.createEl("span", { text: t("skill.total") });
     totalRow.createEl("strong", { text: String(total) });
     if (compareScores && totalDelta !== 0) {
       totalRow.createEl("span", { cls: `kanban-skill-stat-delta ${totalDelta > 0 ? "pos" : "neg"}`, text: totalDelta > 0 ? ` +${totalDelta}` : ` ${totalDelta}` });
@@ -872,8 +1352,8 @@ class InputModal extends Modal {
     input.focus();
     input.select();
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
-    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
+    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: t("common.ok") });
     ok.addEventListener("click", () => { const v = input.value.trim(); if (v) { this.cb(v); this.close(); } });
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); if (e.key === "Escape") this.close(); });
   }
@@ -888,8 +1368,8 @@ class ConfirmModal extends Modal {
     el.createEl("h3", { cls: "kanban-modal-title", text: this.title });
     el.createEl("p", { cls: "kanban-modal-message", text: this.message });
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
-    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    btns.createEl("button", { cls: "kb-btn kb-btn-danger", text: "Delete" }).addEventListener("click", () => { this.onConfirm(); this.close(); });
+    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
+    btns.createEl("button", { cls: "kb-btn kb-btn-danger", text: t("common.delete") }).addEventListener("click", () => { this.onConfirm(); this.close(); });
   }
   onClose() { this.contentEl.empty(); }
 }
@@ -901,17 +1381,17 @@ class ColumnModal extends Modal {
   onOpen() {
     const { contentEl: el } = this;
     el.addClass("kanban-modal");
-    el.createEl("h3", { cls: "kanban-modal-title", text: "Column settings" });
+    el.createEl("h3", { cls: "kanban-modal-title", text: t("colModal.title") });
 
-    el.createEl("label", { cls: "kanban-modal-label", text: "Name" });
+    el.createEl("label", { cls: "kanban-modal-label", text: t("colModal.name") });
     const nameInput = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.opts.name } });
     nameInput.focus();
     nameInput.select();
 
     const doneRow = el.createEl("div", { cls: "kanban-modal-done-row" });
     const doneInfo = doneRow.createEl("div", { cls: "kanban-modal-done-info" });
-    doneInfo.createEl("span", { cls: "kanban-modal-label", text: "Mark as done column" });
-    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: "Cards here count in skill chart and all done todos" });
+    doneInfo.createEl("span", { cls: "kanban-modal-label", text: t("colModal.markDone") });
+    doneInfo.createEl("span", { cls: "kanban-modal-done-hint", text: t("colModal.markDoneHint") });
 
     const toggleWrap = doneRow.createEl("label", { cls: "kanban-skill-toggle" });
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
@@ -919,8 +1399,8 @@ class ColumnModal extends Modal {
     toggleWrap.createEl("span", { cls: "kanban-skill-toggle-track" });
 
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
-    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: "OK" });
+    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
+    const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: t("common.ok") });
     ok.addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name) return;
@@ -933,24 +1413,24 @@ class ColumnModal extends Modal {
 }
 
 class CardModal extends Modal {
-  constructor(app: App, private allLabels: KanbanLabel[], private card: KanbanCard | null, private cb: (t: string, d: string, l: string[]) => void) { super(app); }
+  constructor(app: App, private allLabels: KanbanLabel[], private card: KanbanCard | null, private cb: (t: string, d: string, l: string[], q?: EisenhowerQuadrant) => void) { super(app); }
   onOpen() {
     const { contentEl: el } = this;
     el.addClass("kanban-modal");
-    el.createEl("h3", { cls: "kanban-modal-title", text: this.card ? "Edit card" : "New card" });
+    el.createEl("h3", { cls: "kanban-modal-title", text: this.card ? t("cardModal.editTitle") : t("cardModal.newTitle") });
 
-    el.createEl("label", { cls: "kanban-modal-label", text: "Title" });
-    const titleInput = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.card?.title ?? "", placeholder: "Task title…" } });
+    el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.title") });
+    const titleInput = el.createEl("input", { cls: "kanban-modal-input", attr: { type: "text", value: this.card?.title ?? "", placeholder: t("cardModal.titlePlaceholder") } });
     titleInput.focus();
 
-    el.createEl("label", { cls: "kanban-modal-label", text: "Description" });
-    const descInput = el.createEl("textarea", { cls: "kanban-modal-textarea", attr: { placeholder: "Optional details…", rows: "3" } });
+    el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.description") });
+    const descInput = el.createEl("textarea", { cls: "kanban-modal-textarea", attr: { placeholder: t("cardModal.descriptionPlaceholder"), rows: "3" } });
     if (this.card?.description) descInput.value = this.card.description;
 
     const selected = new Set<string>(this.card?.labelIds ?? []);
 
     if (this.allLabels.length) {
-      el.createEl("label", { cls: "kanban-modal-label", text: "Labels" });
+      el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.labels") });
       const grid = el.createEl("div", { cls: "kanban-modal-chips" });
       this.allLabels.forEach((label) => {
         const chip = grid.createEl("div", { cls: "kanban-modal-chip" + (selected.has(label.id) ? " selected" : "") });
@@ -964,13 +1444,39 @@ class CardModal extends Modal {
       });
     }
 
+    // Eisenhower quadrant
+    el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.ehCategory") });
+    let quadrant: EisenhowerQuadrant | undefined = this.card?.quadrant;
+    const qGrid = el.createEl("div", { cls: "kanban-modal-chips" });
+    const qChips = new Map<string, HTMLElement>();
+    const syncQ = () => {
+      qChips.forEach((chip, id) => {
+        if (id === (quadrant ?? "none")) chip.addClass("selected");
+        else chip.removeClass("selected");
+      });
+    };
+    const addQChip = (id: string, name: string, color: string, hint: string) => {
+      const chip = qGrid.createEl("div", { cls: "kanban-modal-chip", attr: { title: hint } });
+      chip.style.setProperty("--lc", color);
+      chip.createEl("span", { cls: "kanban-chip-dot" });
+      chip.createEl("span", { text: name });
+      chip.addEventListener("click", () => {
+        quadrant = id === "none" ? undefined : (id as EisenhowerQuadrant);
+        syncQ();
+      });
+      qChips.set(id, chip);
+    };
+    addQChip("none", t("cardModal.none"), "var(--text-faint)", t("cardModal.noneHint"));
+    EISENHOWER_QUADRANTS.forEach((q) => addQChip(q.id, q.name, q.color, q.hint));
+    syncQ();
+
     const btns = el.createEl("div", { cls: "kanban-modal-btns" });
-    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: "Cancel" }).addEventListener("click", () => this.close());
-    const save = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: this.card ? "Save" : "Create" });
+    btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
+    const save = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: this.card ? t("cardModal.save") : t("cardModal.create") });
     save.addEventListener("click", () => {
-      const t = titleInput.value.trim();
-      if (!t) { new Notice("Please enter a title."); return; }
-      this.cb(t, descInput.value.trim(), Array.from(selected));
+      const title = titleInput.value.trim();
+      if (!title) { new Notice(t("cardModal.needTitle")); return; }
+      this.cb(title, descInput.value.trim(), Array.from(selected), quadrant);
       this.close();
     });
     titleInput.addEventListener("keydown", (e) => { if (e.key === "Enter") save.click(); });
@@ -982,30 +1488,46 @@ class CardModal extends Modal {
 
 export default class KanbanTodoPlugin extends Plugin {
   settings: KanbanPluginSettings = DEFAULT_SETTINGS;
+  /** Path of the board the user last opened — the Eisenhower matrix follows it. */
+  lastBoardPath: string | null = null;
+  /** Unfinished priority duels per board column, kept in memory until applied or discarded. */
+  duelSessions = new Map<string, DuelComparison[]>();
 
   async onload() {
     await this.loadSettings();
+    setLanguage(this.settings.language);
 
     this.registerView(KANBAN_VIEW_TYPE, (leaf) => new KanbanView(leaf, this));
     this.registerExtensions(["kanban"], KANBAN_VIEW_TYPE);
     this.registerView(SKILL_CHART_VIEW_TYPE, (leaf) => new KanbanSkillChartView(leaf, this));
     this.registerView(ALL_DONE_VIEW_TYPE, (leaf) => new AllDoneTodosView(leaf, this));
+    this.registerView(EISENHOWER_VIEW_TYPE, (leaf) => new EisenhowerMatrixView(leaf, this));
 
-    this.addRibbonIcon("layout-dashboard", "New kanban board", () => this.createBoard());
-    this.addRibbonIcon("check-square", "All done todos", () => void this.openView(ALL_DONE_VIEW_TYPE));
-    this.addRibbonIcon("activity", "Skill chart", () => void this.openView(SKILL_CHART_VIEW_TYPE));
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        const v = leaf?.view;
+        if (v instanceof KanbanView && v.file) this.lastBoardPath = v.file.path;
+      })
+    );
 
-    this.addCommand({ id: "create-kanban-board", name: "New kanban board", callback: () => this.createBoard() });
-    this.addCommand({ id: "open-skill-chart", name: "Open skill chart", callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
-    this.addCommand({ id: "open-all-done", name: "Open all done todos", callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
+    // Registered once at load: these follow a language change only after Obsidian reloads.
+    this.addRibbonIcon("layout-dashboard", t("ribbon.newBoard"), () => this.createBoard());
+    this.addRibbonIcon("check-square", t("ribbon.allDone"), () => void this.openView(ALL_DONE_VIEW_TYPE));
+    this.addRibbonIcon("activity", t("ribbon.skill"), () => void this.openView(SKILL_CHART_VIEW_TYPE));
+    this.addRibbonIcon("layout-grid", t("ribbon.eisenhower"), () => void this.openView(EISENHOWER_VIEW_TYPE));
+
+    this.addCommand({ id: "create-kanban-board", name: t("cmd.newBoard"), callback: () => this.createBoard() });
+    this.addCommand({ id: "open-skill-chart", name: t("cmd.openSkill"), callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
+    this.addCommand({ id: "open-all-done", name: t("cmd.openAllDone"), callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
+    this.addCommand({ id: "open-eisenhower-matrix", name: t("cmd.openEisenhower"), callback: () => void this.openView(EISENHOWER_VIEW_TYPE) });
 
     this.addSettingTab(new KanbanSettingTab(this.app, this));
   }
 
   createBoard(): void {
-    new InputModal(this.app, "New board", "My board", (name) => {
+    new InputModal(this.app, t("newBoard.title"), t("newBoard.default"), (name) => {
       const path = `${name}.kanban`;
-      if (this.app.vault.getAbstractFileByPath(path)) { new Notice(`"${path}" already exists.`); return; }
+      if (this.app.vault.getAbstractFileByPath(path)) { new Notice(t("newBoard.exists", { path })); return; }
       void (async () => {
         const file = await this.app.vault.create(path, JSON.stringify(defaultBoard(), null, 2));
         const leaf = this.app.workspace.getLeaf(false);
@@ -1038,6 +1560,12 @@ export default class KanbanTodoPlugin extends Plugin {
     }
   }
 
+  async refreshEisenhowerView(): Promise<void> {
+    for (const l of this.app.workspace.getLeavesOfType(EISENHOWER_VIEW_TYPE)) {
+      if (l.view instanceof EisenhowerMatrixView) await l.view.render();
+    }
+  }
+
   async loadSettings(): Promise<void> {
     const loaded: Partial<KanbanPluginSettings> = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
@@ -1047,6 +1575,21 @@ export default class KanbanTodoPlugin extends Plugin {
   }
 
   async saveSettings(): Promise<void> { await this.saveData(this.settings); }
+
+  /** Apply a new language and redraw every open view of this plugin. */
+  async changeLanguage(language: LanguageSetting): Promise<void> {
+    this.settings.language = language;
+    setLanguage(language);
+    await this.saveSettings();
+    for (const leaf of this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)) {
+      if (leaf.view instanceof KanbanView) leaf.view.render();
+    }
+    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
+      if (l.view instanceof KanbanSkillChartView) l.view.render();
+    });
+    await this.refreshAllDoneView();
+    await this.refreshEisenhowerView();
+  }
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
@@ -1061,28 +1604,40 @@ class KanbanSettingTab extends PluginSettingTab {
     el.empty();
     el.addClass("kanban-settings");
 
-    el.createEl("p", { cls: "setting-item-description", text: "Labels are assigned to cards and drive the skill chart." });
+    new Setting(el)
+      .setName(t("settings.language"))
+      .setDesc(t("settings.languageDesc"))
+      .addDropdown((d) => d
+        .addOption("auto", t("settings.languageAuto", { lang: LANGUAGE_NAMES[obsidianLanguage()] }))
+        .addOption("en", LANGUAGE_NAMES.en)
+        .addOption("de", LANGUAGE_NAMES.de)
+        .setValue(this.plugin.settings.language ?? "auto")
+        .onChange(async (value) => {
+          await this.plugin.changeLanguage(value as LanguageSetting);
+          this.display();
+        }));
 
-    new Setting(el).setName("Labels").setHeading();
+    new Setting(el).setName(t("settings.labels")).setHeading();
+    el.createEl("p", { cls: "setting-item-description", text: t("settings.labelsDesc") });
     const list = el.createEl("div", { cls: "kanban-settings-labels" });
     this.renderLabels(list);
 
     new Setting(el).addButton((b) =>
-      b.setButtonText("Add label").setCta().onClick(() => {
-        this.plugin.settings.labels.push({ id: generateId(), name: "New label", color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
+      b.setButtonText(t("settings.addLabel")).setCta().onClick(() => {
+        this.plugin.settings.labels.push({ id: generateId(), name: t("settings.newLabel"), color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
         void this.plugin.saveSettings();
         this.display();
       })
     );
 
-    new Setting(el).setName("Skill data").setHeading();
+    new Setting(el).setName(t("settings.skillData")).setHeading();
     new Setting(el)
-      .setName("Reset skill scores")
-      .setDesc("Clears all accumulated scores and history.")
-      .addButton((b) => b.setButtonText("Reset").setWarning().onClick(() => {
+      .setName(t("settings.reset"))
+      .setDesc(t("settings.resetDesc"))
+      .addButton((b) => b.setButtonText(t("settings.resetButton")).setWarning().onClick(() => {
         this.plugin.settings.skillData = { scores: {}, snapshots: [] };
         void this.plugin.saveSettings();
-        new Notice("Skill scores reset.");
+        new Notice(t("settings.resetDone"));
       }));
   }
 
@@ -1108,7 +1663,7 @@ class KanbanSettingTab extends PluginSettingTab {
       const preview = row.createEl("span", { cls: "kanban-label-tag", text: label.name });
       preview.style.setProperty("--lc", label.color);
 
-      const del = row.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: "Remove" } });
+      const del = row.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("settings.remove") } });
       setIcon(del, "x");
       del.addEventListener("click", () => {
         this.plugin.settings.labels.splice(idx, 1);
