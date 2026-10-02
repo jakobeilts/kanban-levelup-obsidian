@@ -37,10 +37,10 @@ __export(main_exports, {
   quadrantDef: () => quadrantDef
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 
 // duel-modal.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 
 // duel-ranker.ts
 var PRIOR_SPAN = 2;
@@ -290,6 +290,12 @@ var en = {
   "card.edit": "Edit",
   "card.delete": "Delete",
   "card.ehTitle": "Eisenhower: {hint}",
+  "card.position": "Position {n} in this column",
+  "due.on": "Due {date}",
+  "due.today": "Due today",
+  "due.tomorrow": "Due tomorrow",
+  "due.overdue": "Overdue \xB7 {date}",
+  "due.title": "Deadline: {date}",
   "notice.duelNeedsTwo": "Add at least two cards to prioritise this column.",
   "notice.columnGone": "That column no longer exists.",
   "notice.orderConfirmed": 'Order of "{name}" confirmed.',
@@ -356,6 +362,9 @@ var en = {
   "cardModal.ehCategory": "Eisenhower category",
   "cardModal.none": "None",
   "cardModal.noneHint": "No Eisenhower category",
+  "cardModal.dueDate": "Deadline",
+  "cardModal.dueHint": "The card turns yellow the day before and red from the day itself.",
+  "cardModal.clearDue": "Remove deadline",
   "cardModal.save": "Save",
   "cardModal.create": "Create",
   "cardModal.needTitle": "Please enter a title.",
@@ -380,6 +389,9 @@ var en = {
   "settings.addLabel": "Add label",
   "settings.newLabel": "New label",
   "settings.remove": "Remove",
+  "settings.deadlines": "Deadlines",
+  "settings.redOnTop": "Show due cards first",
+  "settings.redOnTopDesc": "Cards that are due today or overdue (red) appear at the top of their column. Only the display changes: the saved order stays as it is, so a card returns to its place once it is done or its deadline moves.",
   "settings.skillData": "Skill data",
   "settings.reset": "Reset skill scores",
   "settings.resetDesc": "Clears all accumulated scores and history.",
@@ -522,6 +534,12 @@ var de = {
   "card.edit": "Bearbeiten",
   "card.delete": "L\xF6schen",
   "card.ehTitle": "Eisenhower: {hint}",
+  "card.position": "Platz {n} in dieser Spalte",
+  "due.on": "F\xE4llig {date}",
+  "due.today": "Heute f\xE4llig",
+  "due.tomorrow": "Morgen f\xE4llig",
+  "due.overdue": "\xDCberf\xE4llig \xB7 {date}",
+  "due.title": "Deadline: {date}",
   "notice.duelNeedsTwo": "F\xFCge mindestens zwei Karten hinzu, um diese Spalte zu priorisieren.",
   "notice.columnGone": "Diese Spalte gibt es nicht mehr.",
   "notice.orderConfirmed": "Reihenfolge von \u201E{name}\u201C best\xE4tigt.",
@@ -588,6 +606,9 @@ var de = {
   "cardModal.ehCategory": "Eisenhower-Kategorie",
   "cardModal.none": "Keine",
   "cardModal.noneHint": "Keine Eisenhower-Kategorie",
+  "cardModal.dueDate": "Deadline",
+  "cardModal.dueHint": "Die Karte wird am Vortag gelb und ab dem Tag selbst rot.",
+  "cardModal.clearDue": "Deadline entfernen",
   "cardModal.save": "Speichern",
   "cardModal.create": "Erstellen",
   "cardModal.needTitle": "Bitte gib einen Titel ein.",
@@ -612,6 +633,9 @@ var de = {
   "settings.addLabel": "Label hinzuf\xFCgen",
   "settings.newLabel": "Neues Label",
   "settings.remove": "Entfernen",
+  "settings.deadlines": "Deadlines",
+  "settings.redOnTop": "F\xE4llige Aufgaben immer oben",
+  "settings.redOnTopDesc": "Karten, die heute f\xE4llig oder \xFCberf\xE4llig sind (rot), stehen ganz oben in ihrer Spalte. Nur die Anzeige \xE4ndert sich: Die gespeicherte Reihenfolge bleibt erhalten, die Karte kehrt also an ihren Platz zur\xFCck, sobald sie erledigt ist oder die Deadline verschoben wird.",
   "settings.skillData": "Skill-Daten",
   "settings.reset": "Skill-Punkte zur\xFCcksetzen",
   "settings.resetDesc": "L\xF6scht alle gesammelten Punkte und den Verlauf.",
@@ -753,6 +777,84 @@ function tp(base, n, vars) {
   return t(key, Object.assign({ n }, vars));
 }
 
+// deadline.ts
+var import_obsidian2 = require("obsidian");
+var DATE_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
+function localDateKey(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function dayNumber(key) {
+  const m = DATE_KEY.exec(key);
+  if (!m)
+    return null;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(ms) ? null : Math.round(ms / 864e5);
+}
+function isDateKey(value) {
+  return typeof value === "string" && dayNumber(value) !== null;
+}
+function daysUntil(due, today = localDateKey()) {
+  const a = dayNumber(due), b = dayNumber(today);
+  return a === null || b === null ? null : a - b;
+}
+function dueState(due, today) {
+  if (!isDateKey(due))
+    return null;
+  const n = daysUntil(due, today);
+  if (n === null)
+    return null;
+  return n < 0 ? "overdue" : n === 0 ? "today" : n === 1 ? "tomorrow" : "later";
+}
+function isRed(state) {
+  return state === "today" || state === "overdue";
+}
+function dueClass(state) {
+  if (state === "tomorrow")
+    return "is-due-soon";
+  if (isRed(state))
+    return "is-due-red";
+  return "";
+}
+function formatDue(due) {
+  const m = DATE_KEY.exec(due);
+  if (!m)
+    return due;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const opts = { day: "numeric", month: "short" };
+  if (date.getFullYear() !== new Date().getFullYear())
+    opts.year = "numeric";
+  return date.toLocaleDateString(dateLocale(), opts);
+}
+function dueLabel(due, state) {
+  switch (state) {
+    case "today":
+      return t("due.today");
+    case "tomorrow":
+      return t("due.tomorrow");
+    case "overdue":
+      return t("due.overdue", { date: formatDue(due) });
+    default:
+      return t("due.on", { date: formatDue(due) });
+  }
+}
+function renderDueChip(parent, due, muted = false) {
+  const state = dueState(due);
+  if (!state || !due)
+    return;
+  const cls = "kanban-due-chip" + (muted ? "" : state === "tomorrow" ? " is-soon" : isRed(state) ? " is-red" : "");
+  const chip = parent.createSpan({ cls, attr: { title: t("due.title", { date: formatDue(due) }) } });
+  const icon = chip.createSpan({ cls: "kanban-due-icon" });
+  (0, import_obsidian2.setIcon)(icon, "calendar");
+  chip.createSpan({ text: muted ? formatDue(due) : dueLabel(due, state) });
+}
+function redFirst(cards, today) {
+  const red = cards.filter((c) => isRed(dueState(c.dueDate, today)));
+  if (!red.length)
+    return cards;
+  return red.concat(cards.filter((c) => !red.includes(c)));
+}
+
 // duel-modal.ts
 function svg(parent, tag, attrs = {}) {
   return parent.createSvg(tag, { attr: attrs });
@@ -773,7 +875,7 @@ function verdictText(v) {
       return t("verdict.holding", { top: v.top, held: v.held, window: v.window });
   }
 }
-var PriorityDuelModal = class extends import_obsidian2.Modal {
+var PriorityDuelModal = class extends import_obsidian3.Modal {
   constructor(app, opts) {
     super(app);
     this.opts = opts;
@@ -875,7 +977,7 @@ var PriorityDuelModal = class extends import_obsidian2.Modal {
       cls: "kb-duel-help-btn" + (open ? " is-open" : ""),
       attr: { title: open ? t("duel.helpHide") : t("duel.helpShow"), "aria-expanded": String(open) }
     });
-    (0, import_obsidian2.setIcon)(btn, "help-circle");
+    (0, import_obsidian3.setIcon)(btn, "help-circle");
     if (!btn.querySelector("svg"))
       btn.setText("?");
     btn.addEventListener("click", (e) => {
@@ -1005,11 +1107,12 @@ var PriorityDuelModal = class extends import_obsidian2.Modal {
       return (_a = card.labelIds) == null ? void 0 : _a.includes(l.id);
     });
     const isNew = this.opts.unplaced.has(card.id);
-    if (!q && !labels.length && !isNew)
+    if (!q && !labels.length && !isNew && !card.dueDate)
       return;
     const row = parent.createSpan({ cls: "kb-duel-chips" });
     if (isNew)
       row.createSpan({ cls: "kanban-label-tag kb-duel-new", text: t("duel.newChip") });
+    renderDueChip(row, card.dueDate);
     if (q) {
       const tag = row.createSpan({ cls: "kanban-label-tag kanban-eh-tag", text: q.name, attr: { title: t("card.ehTitle", { hint: q.hint }) } });
       tag.style.setProperty("--lc", q.color);
@@ -1258,7 +1361,7 @@ function defaultBoard() {
   };
 }
 var KANBAN_VIEW_TYPE = "kanban-todo-view";
-var KanbanView = class extends import_obsidian3.TextFileView {
+var KanbanView = class extends import_obsidian4.TextFileView {
   constructor(leaf, plugin) {
     super(leaf);
     this.boardData = defaultBoard();
@@ -1268,6 +1371,8 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     // Column drag state
     this.draggedCol = null;
     this.colDropIndex = null;
+    /** Card to scroll into view and highlight after the next render (set by moveCard). */
+    this.focusCardId = null;
     this.plugin = plugin;
   }
   getViewType() {
@@ -1319,8 +1424,12 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     } else {
       delete card.completedAt;
     }
-    const insertAt = toIndex !== void 0 ? Math.min(toIndex, toCol.cards.length) : toCol.cards.length;
+    let target = toIndex;
+    if (target !== void 0 && fromCol === toCol && fromIdx < target)
+      target -= 1;
+    const insertAt = target !== void 0 ? Math.min(target, toCol.cards.length) : toCol.cards.length;
     toCol.cards.splice(insertAt, 0, card);
+    this.focusCardId = card.id;
     this.persist();
     try {
       if (wasInDone && ((_a = card.labelIds) == null ? void 0 : _a.length)) {
@@ -1335,14 +1444,21 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     void this.plugin.refreshAllDoneView();
   }
   render() {
-    var _a, _b;
+    var _a, _b, _c;
     const el = this.contentEl;
+    const prevBoard = el.querySelector(".kanban-board");
+    const prevLeft = (_a = prevBoard == null ? void 0 : prevBoard.scrollLeft) != null ? _a : 0;
+    const prevTops = /* @__PURE__ */ new Map();
+    el.querySelectorAll(".kanban-cards[data-col-id]").forEach((n) => {
+      var _a2;
+      prevTops.set((_a2 = n.getAttribute("data-col-id")) != null ? _a2 : "", n.scrollTop);
+    });
     el.empty();
     el.addClass("kanban-root");
     const hdr = el.createDiv({ cls: "kanban-header" });
-    hdr.createSpan({ cls: "kanban-header-title", text: (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : t("board.fallbackTitle") });
+    hdr.createSpan({ cls: "kanban-header-title", text: (_c = (_b = this.file) == null ? void 0 : _b.basename) != null ? _c : t("board.fallbackTitle") });
     const renameBtn = hdr.createEl("button", { cls: "kanban-rename-btn", attr: { title: t("board.rename") } });
-    (0, import_obsidian3.setIcon)(renameBtn, "pencil");
+    (0, import_obsidian4.setIcon)(renameBtn, "pencil");
     renameBtn.addEventListener("click", () => {
       if (!this.file)
         return;
@@ -1387,13 +1503,34 @@ var KanbanView = class extends import_obsidian3.TextFileView {
       this.dropColumnAt(this.boardData.columns.length);
     });
     const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: t("board.addColumn") } });
-    (0, import_obsidian3.setIcon)(addColBtn, "plus");
+    (0, import_obsidian4.setIcon)(addColBtn, "plus");
     addColBtn.addEventListener("click", () => {
       new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone }) => {
         this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
         this.persist();
       }).open();
     });
+    board.scrollLeft = prevLeft;
+    board.querySelectorAll(".kanban-cards[data-col-id]").forEach((n) => {
+      var _a2;
+      const top = prevTops.get((_a2 = n.getAttribute("data-col-id")) != null ? _a2 : "");
+      if (top)
+        n.scrollTop = top;
+    });
+    this.revealFocusedCard(board);
+  }
+  /** After a move: keep the moved card on screen and flash it briefly, so the eye can follow it. */
+  revealFocusedCard(board) {
+    const id = this.focusCardId;
+    this.focusCardId = null;
+    if (!id)
+      return;
+    const cardEl = Array.from(board.querySelectorAll(".kanban-card[data-card-id]")).find((n) => n.getAttribute("data-card-id") === id);
+    if (!cardEl)
+      return;
+    cardEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+    cardEl.addClass("is-just-moved");
+    window.setTimeout(() => cardEl.removeClass("is-just-moved"), 900);
   }
   dropColumnAt(targetIndex) {
     if (!this.draggedCol)
@@ -1411,8 +1548,9 @@ var KanbanView = class extends import_obsidian3.TextFileView {
   renderColumn(board, col) {
     var _a, _b;
     const now = Date.now();
-    const visibleCards = col.isDone ? col.cards.filter((c) => !c.completedAt || now - c.completedAt < ONE_WEEK_MS) : col.cards;
-    const hiddenCount = col.isDone ? col.cards.length - visibleCards.length : 0;
+    const shownCards = col.isDone ? col.cards.filter((c) => !c.completedAt || now - c.completedAt < ONE_WEEK_MS) : col.cards;
+    const hiddenCount = col.isDone ? col.cards.length - shownCards.length : 0;
+    const visibleCards = !col.isDone && this.plugin.settings.dueRedOnTop ? redFirst(shownCards) : shownCards;
     const colEl = board.createDiv({ cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
     const hdr = colEl.createDiv({ cls: "kanban-col-hdr", attr: { draggable: "true" } });
     hdr.addEventListener("dragstart", (e) => {
@@ -1428,7 +1566,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
       this.contentEl.querySelectorAll(".col-gap-active").forEach((n) => n.removeClass("col-gap-active"));
     });
     const dragHandle = hdr.createSpan({ cls: "kanban-col-drag-handle", attr: { title: t("col.dragToReorder") } });
-    (0, import_obsidian3.setIcon)(dragHandle, "grip-vertical");
+    (0, import_obsidian4.setIcon)(dragHandle, "grip-vertical");
     const accent = hdr.createSpan({ cls: "kanban-col-accent" });
     accent.style.background = (_a = col.color) != null ? _a : "#6366f1";
     const titleEl = hdr.createSpan({ cls: "kanban-col-title", text: col.name });
@@ -1472,9 +1610,9 @@ var KanbanView = class extends import_obsidian3.TextFileView {
         cls: "kb-icon-btn kb-duel-open",
         attr: { title: col.cards.length < 2 ? t("col.duelNeedsTwo") : t("col.duel") }
       });
-      (0, import_obsidian3.setIcon)(duelBtn, "swords");
+      (0, import_obsidian4.setIcon)(duelBtn, "swords");
       if (!duelBtn.querySelector("svg"))
-        (0, import_obsidian3.setIcon)(duelBtn, "list-ordered");
+        (0, import_obsidian4.setIcon)(duelBtn, "list-ordered");
       duelBtn.disabled = col.cards.length < 2;
       duelBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1482,7 +1620,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
       });
     }
     const delColBtn = hdr.createEl("button", { cls: "kb-icon-btn", attr: { title: t("col.delete") } });
-    (0, import_obsidian3.setIcon)(delColBtn, "trash-2");
+    (0, import_obsidian4.setIcon)(delColBtn, "trash-2");
     delColBtn.addEventListener("click", () => {
       if (col.cards.length > 0) {
         new ConfirmModal(
@@ -1495,14 +1633,14 @@ var KanbanView = class extends import_obsidian3.TextFileView {
         void this.deleteColumn(col);
       }
     });
-    const cardsEl = colEl.createDiv({ cls: "kanban-cards" });
+    const cardsEl = colEl.createDiv({ cls: "kanban-cards", attr: { "data-col-id": col.id } });
     cardsEl.addEventListener("dragover", (e) => {
       if (this.draggedCol || !this.draggedCard)
         return;
       e.preventDefault();
       if (!(e.target instanceof Element) || !e.target.closest(".kanban-card")) {
         colEl.addClass("drag-over");
-        this.cardDropTarget = { col, index: visibleCards.length };
+        this.cardDropTarget = { col, index: col.cards.length };
       }
     });
     cardsEl.addEventListener("dragleave", (e) => {
@@ -1525,21 +1663,23 @@ var KanbanView = class extends import_obsidian3.TextFileView {
         void this.moveCard(card, sourceCol, col);
       }
     });
-    visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards.length));
+    visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards));
     if (hiddenCount > 0) {
       const archivedNote = cardsEl.createDiv({ cls: "kanban-archived-note" });
       const archiveIcon = archivedNote.createSpan();
-      (0, import_obsidian3.setIcon)(archiveIcon, "archive");
+      (0, import_obsidian4.setIcon)(archiveIcon, "archive");
       archivedNote.createSpan({ text: " " + tp("col.archived", hiddenCount) });
     }
     const addBtn = colEl.createEl("button", { cls: "kanban-add-card-btn" });
     const plusIcon = addBtn.createSpan();
-    (0, import_obsidian3.setIcon)(plusIcon, "plus");
+    (0, import_obsidian4.setIcon)(plusIcon, "plus");
     addBtn.createSpan({ text: t("col.addCard") });
     addBtn.addEventListener("click", () => {
-      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds, quadrant) => {
+      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds, quadrant, dueDate) => {
         void (async () => {
           const card = { id: generateId(), title, description: desc, labelIds, quadrant, createdAt: Date.now() };
+          if (dueDate)
+            card.dueDate = dueDate;
           if (col.isDone) {
             card.completedAt = Date.now();
             if (labelIds.length)
@@ -1560,7 +1700,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
   openDuel(col) {
     var _a;
     if (col.cards.length < 2) {
-      new import_obsidian3.Notice(t("notice.duelNeedsTwo"));
+      new import_obsidian4.Notice(t("notice.duelNeedsTwo"));
       return;
     }
     const key = this.duelKey(col);
@@ -1595,7 +1735,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
   applyColumnOrder(colId, orderedIds) {
     const col = this.boardData.columns.find((c) => c.id === colId);
     if (!col) {
-      new import_obsidian3.Notice(t("notice.columnGone"));
+      new import_obsidian4.Notice(t("notice.columnGone"));
       return;
     }
     const rank = new Map(orderedIds.map((id, i) => [id, i]));
@@ -1608,7 +1748,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     col.cards = ranked.concat(added);
     col.rankedIds = ranked.map((c) => c.id);
     this.persist();
-    new import_obsidian3.Notice(col.cards.map((c) => c.id).join() === before ? t("notice.orderConfirmed", { name: col.name }) : t("notice.reordered", { name: col.name }));
+    new import_obsidian4.Notice(col.cards.map((c) => c.id).join() === before ? t("notice.orderConfirmed", { name: col.name }) : t("notice.reordered", { name: col.name }));
   }
   async deleteColumn(col) {
     var _a;
@@ -1622,8 +1762,9 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     this.persist();
     void this.plugin.refreshAllDoneView();
   }
-  renderCard(container, card, col, cardIdx, _totalVisible) {
-    const el = container.createDiv({ cls: "kanban-card", attr: { draggable: "true" } });
+  renderCard(container, card, col, cardIdx, visibleCards) {
+    const due = col.isDone ? "" : dueClass(dueState(card.dueDate));
+    const el = container.createDiv({ cls: "kanban-card" + (due ? " " + due : ""), attr: { draggable: "true", "data-card-id": card.id } });
     el.addEventListener("dragstart", (e) => {
       var _a;
       if (this.draggedCol)
@@ -1657,18 +1798,18 @@ var KanbanView = class extends import_obsidian3.TextFileView {
         n.removeClass("card-drop-after");
       });
       el.addClass(isBefore ? "card-drop-before" : "card-drop-after");
-      const visibleCard = col.isDone ? col.cards.filter((c) => {
-        var _a2;
-        return !c.completedAt || Date.now() - ((_a2 = c.completedAt) != null ? _a2 : 0) < ONE_WEEK_MS;
-      }) : col.cards;
       const targetVisible = isBefore ? cardIdx : cardIdx + 1;
-      const targetCard = visibleCard[targetVisible];
+      const targetCard = visibleCards[targetVisible];
       const targetIdx = targetCard ? col.cards.indexOf(targetCard) : col.cards.length;
       this.cardDropTarget = { col, index: targetIdx };
       (_a = container.closest(".kanban-col")) == null ? void 0 : _a.removeClass("drag-over");
     });
     const body = el.createDiv({ cls: "kanban-card-body" });
-    body.createDiv({ cls: "kanban-card-title", text: card.title });
+    const titleRow = body.createDiv({ cls: "kanban-card-titlerow" });
+    if (!col.isDone) {
+      titleRow.createSpan({ cls: "kanban-card-pos", text: String(cardIdx + 1), attr: { title: t("card.position", { n: cardIdx + 1 }) } });
+    }
+    titleRow.createDiv({ cls: "kanban-card-title", text: card.title });
     if (card.description)
       body.createDiv({ cls: "kanban-card-desc", text: card.description });
     const qDef = quadrantDef(card.quadrant);
@@ -1676,8 +1817,9 @@ var KanbanView = class extends import_obsidian3.TextFileView {
       var _a;
       return (_a = card.labelIds) == null ? void 0 : _a.includes(l.id);
     });
-    if (qDef || cardLabels.length) {
+    if (qDef || cardLabels.length || card.dueDate) {
       const row = el.createDiv({ cls: "kanban-card-labels" });
+      renderDueChip(row, card.dueDate, col.isDone);
       if (qDef) {
         const qTag = row.createSpan({ cls: "kanban-label-tag kanban-eh-tag", text: qDef.name, attr: { title: t("card.ehTitle", { hint: qDef.hint }) } });
         qTag.style.setProperty("--lc", qDef.color);
@@ -1692,7 +1834,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     const colIdx = this.boardData.columns.findIndex((c) => c.id === col.id);
     if (colIdx > 0) {
       const lb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.moveLeft") } });
-      (0, import_obsidian3.setIcon)(lb, "chevron-left");
+      (0, import_obsidian4.setIcon)(lb, "chevron-left");
       lb.addEventListener("click", (e) => {
         e.stopPropagation();
         void this.moveCard(card, col, this.boardData.columns[colIdx - 1]);
@@ -1700,17 +1842,17 @@ var KanbanView = class extends import_obsidian3.TextFileView {
     }
     if (colIdx < this.boardData.columns.length - 1) {
       const rb = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.moveRight") } });
-      (0, import_obsidian3.setIcon)(rb, "chevron-right");
+      (0, import_obsidian4.setIcon)(rb, "chevron-right");
       rb.addEventListener("click", (e) => {
         e.stopPropagation();
         void this.moveCard(card, col, this.boardData.columns[colIdx + 1]);
       });
     }
     const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.edit") } });
-    (0, import_obsidian3.setIcon)(editBtn, "pencil");
+    (0, import_obsidian4.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant) => {
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
         void (async () => {
           var _a;
           if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
@@ -1722,6 +1864,10 @@ var KanbanView = class extends import_obsidian3.TextFileView {
             card.quadrant = quadrant;
           else
             delete card.quadrant;
+          if (dueDate)
+            card.dueDate = dueDate;
+          else
+            delete card.dueDate;
           if (col.isDone && labelIds.length)
             await this.plugin.updateSkillScores(labelIds, 1);
           this.persist();
@@ -1730,7 +1876,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
       }).open();
     });
     const delBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("card.delete") } });
-    (0, import_obsidian3.setIcon)(delBtn, "x");
+    (0, import_obsidian4.setIcon)(delBtn, "x");
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void (async () => {
@@ -1745,7 +1891,7 @@ var KanbanView = class extends import_obsidian3.TextFileView {
   }
 };
 var ALL_DONE_VIEW_TYPE = "kanban-all-done";
-var AllDoneTodosView = class extends import_obsidian3.ItemView {
+var AllDoneTodosView = class extends import_obsidian4.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -1807,7 +1953,7 @@ var AllDoneTodosView = class extends import_obsidian3.ItemView {
       for (const entry of dayEntries) {
         const row = section.createDiv({ cls: "kanban-done-row" });
         const check = row.createSpan({ cls: "kanban-done-check" });
-        (0, import_obsidian3.setIcon)(check, "check");
+        (0, import_obsidian4.setIcon)(check, "check");
         const main = row.createDiv({ cls: "kanban-done-main" });
         main.createSpan({ cls: "kanban-done-card-title", text: entry.card.title });
         if (entry.card.description)
@@ -1827,7 +1973,7 @@ var AllDoneTodosView = class extends import_obsidian3.ItemView {
   }
 };
 var EISENHOWER_VIEW_TYPE = "kanban-eisenhower";
-var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
+var EisenhowerMatrixView = class extends import_obsidian4.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.board = null;
@@ -1910,7 +2056,7 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
     try {
       board = JSON.parse(await this.app.vault.read(file));
     } catch (e) {
-      new import_obsidian3.Notice(t("eh.cannotRead", { name: file.basename }));
+      new import_obsidian4.Notice(t("eh.cannotRead", { name: file.basename }));
       return null;
     }
     const result = mutate(board);
@@ -1937,7 +2083,7 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
       var _a;
       const doneCol = board.columns.find((c) => c.isDone);
       if (!doneCol) {
-        new import_obsidian3.Notice(t("eh.noDoneColumn"));
+        new import_obsidian4.Notice(t("eh.noDoneColumn"));
         return null;
       }
       for (const col of board.columns) {
@@ -1963,7 +2109,7 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
       }
     }
     void this.plugin.refreshAllDoneView();
-    new import_obsidian3.Notice(t("eh.completed", { title: moved.title }));
+    new import_obsidian4.Notice(t("eh.completed", { title: moved.title }));
     await this.render();
   }
   async render() {
@@ -2095,7 +2241,8 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
   }
   renderCard(container, entry) {
     const { card, column } = entry;
-    const el = container.createDiv({ cls: "kanban-eh-card", attr: { draggable: "true" } });
+    const due = dueClass(dueState(card.dueDate));
+    const el = container.createDiv({ cls: "kanban-eh-card" + (due ? " " + due : ""), attr: { draggable: "true" } });
     el.addEventListener("dragstart", (e) => {
       var _a;
       this.dragged = card;
@@ -2111,7 +2258,7 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
     const titleRow = body.createDiv({ cls: "kanban-eh-card-titlerow" });
     if (card.description) {
       const chevron = titleRow.createSpan({ cls: "kanban-eh-card-toggle" });
-      (0, import_obsidian3.setIcon)(chevron, "chevron-right");
+      (0, import_obsidian4.setIcon)(chevron, "chevron-right");
       titleRow.createSpan({ cls: "kanban-eh-card-title", text: card.title });
       const descEl = body.createDiv({ cls: "kanban-eh-card-desc", text: card.description });
       const sync = () => {
@@ -2138,6 +2285,7 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
     }
     const meta = el.createDiv({ cls: "kanban-eh-card-meta" });
     meta.createSpan({ cls: "kanban-eh-card-col", text: column.name });
+    renderDueChip(meta, card.dueDate);
     this.plugin.settings.labels.filter((l) => {
       var _a;
       return (_a = card.labelIds) == null ? void 0 : _a.includes(l.id);
@@ -2147,16 +2295,16 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
     });
     const actions = el.createDiv({ cls: "kanban-eh-card-actions" });
     const doneBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-done", attr: { title: t("eh.markDone") } });
-    (0, import_obsidian3.setIcon)(doneBtn, "check");
+    (0, import_obsidian4.setIcon)(doneBtn, "check");
     doneBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.completeCard(card.id);
     });
     const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("eh.editCard") } });
-    (0, import_obsidian3.setIcon)(editBtn, "pencil");
+    (0, import_obsidian4.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant) => {
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
         void (async () => {
           await this.applyCardChange(card.id, (c) => {
             c.title = title;
@@ -2166,6 +2314,10 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
               c.quadrant = quadrant;
             else
               delete c.quadrant;
+            if (dueDate)
+              c.dueDate = dueDate;
+            else
+              delete c.dueDate;
           });
           await this.render();
         })();
@@ -2174,7 +2326,7 @@ var EisenhowerMatrixView = class extends import_obsidian3.ItemView {
   }
 };
 var SKILL_CHART_VIEW_TYPE = "kanban-skill-chart";
-var KanbanSkillChartView = class extends import_obsidian3.ItemView {
+var KanbanSkillChartView = class extends import_obsidian4.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.compareFrom = toDateInputVal(new Date(Date.now() - 7 * 864e5));
@@ -2428,7 +2580,7 @@ var KanbanSkillChartView = class extends import_obsidian3.ItemView {
     container.appendChild(svg2);
   }
 };
-var InputModal = class extends import_obsidian3.Modal {
+var InputModal = class extends import_obsidian4.Modal {
   constructor(app, title, def, cb) {
     super(app);
     this.title = title;
@@ -2463,7 +2615,7 @@ var InputModal = class extends import_obsidian3.Modal {
     this.contentEl.empty();
   }
 };
-var ConfirmModal = class extends import_obsidian3.Modal {
+var ConfirmModal = class extends import_obsidian4.Modal {
   constructor(app, title, message, onConfirm) {
     super(app);
     this.title = title;
@@ -2486,7 +2638,7 @@ var ConfirmModal = class extends import_obsidian3.Modal {
     this.contentEl.empty();
   }
 };
-var ColumnModal = class extends import_obsidian3.Modal {
+var ColumnModal = class extends import_obsidian4.Modal {
   constructor(app, opts, cb) {
     super(app);
     this.opts = opts;
@@ -2529,7 +2681,7 @@ var ColumnModal = class extends import_obsidian3.Modal {
     this.contentEl.empty();
   }
 };
-var CardModal = class extends import_obsidian3.Modal {
+var CardModal = class extends import_obsidian4.Modal {
   constructor(app, allLabels, card, cb) {
     super(app);
     this.allLabels = allLabels;
@@ -2537,7 +2689,7 @@ var CardModal = class extends import_obsidian3.Modal {
     this.cb = cb;
   }
   onOpen() {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const { contentEl: el } = this;
     el.addClass("kanban-modal");
     el.createEl("h3", { cls: "kanban-modal-title", text: this.card ? t("cardModal.editTitle") : t("cardModal.newTitle") });
@@ -2548,7 +2700,17 @@ var CardModal = class extends import_obsidian3.Modal {
     const descInput = el.createEl("textarea", { cls: "kanban-modal-textarea", attr: { placeholder: t("cardModal.descriptionPlaceholder"), rows: "3" } });
     if ((_c = this.card) == null ? void 0 : _c.description)
       descInput.value = this.card.description;
-    const selected = new Set((_e = (_d = this.card) == null ? void 0 : _d.labelIds) != null ? _e : []);
+    el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.dueDate") });
+    const dueRow = el.createDiv({ cls: "kanban-modal-due-row" });
+    const dueInput = dueRow.createEl("input", { cls: "kanban-modal-input kanban-modal-date", attr: { type: "date", value: (_e = (_d = this.card) == null ? void 0 : _d.dueDate) != null ? _e : "" } });
+    const clearDue = dueRow.createEl("button", { cls: "kb-icon-btn", attr: { title: t("cardModal.clearDue") } });
+    (0, import_obsidian4.setIcon)(clearDue, "x");
+    clearDue.addEventListener("click", (e) => {
+      e.preventDefault();
+      dueInput.value = "";
+    });
+    el.createDiv({ cls: "kanban-modal-done-hint", text: t("cardModal.dueHint") });
+    const selected = new Set((_g = (_f = this.card) == null ? void 0 : _f.labelIds) != null ? _g : []);
     if (this.allLabels.length) {
       el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.labels") });
       const grid = el.createDiv({ cls: "kanban-modal-chips" });
@@ -2569,7 +2731,7 @@ var CardModal = class extends import_obsidian3.Modal {
       });
     }
     el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.ehCategory") });
-    let quadrant = (_f = this.card) == null ? void 0 : _f.quadrant;
+    let quadrant = (_h = this.card) == null ? void 0 : _h.quadrant;
     const qGrid = el.createDiv({ cls: "kanban-modal-chips" });
     const qChips = /* @__PURE__ */ new Map();
     const syncQ = () => {
@@ -2600,10 +2762,10 @@ var CardModal = class extends import_obsidian3.Modal {
     save.addEventListener("click", () => {
       const title = titleInput.value.trim();
       if (!title) {
-        new import_obsidian3.Notice(t("cardModal.needTitle"));
+        new import_obsidian4.Notice(t("cardModal.needTitle"));
         return;
       }
-      this.cb(title, descInput.value.trim(), Array.from(selected), quadrant);
+      this.cb(title, descInput.value.trim(), Array.from(selected), quadrant, isDateKey(dueInput.value) ? dueInput.value : void 0);
       this.close();
     });
     titleInput.addEventListener("keydown", (e) => {
@@ -2615,7 +2777,7 @@ var CardModal = class extends import_obsidian3.Modal {
     this.contentEl.empty();
   }
 };
-var KanbanTodoPlugin = class extends import_obsidian3.Plugin {
+var KanbanTodoPlugin = class extends import_obsidian4.Plugin {
   constructor() {
     super(...arguments);
     this.settings = DEFAULT_SETTINGS;
@@ -2648,12 +2810,28 @@ var KanbanTodoPlugin = class extends import_obsidian3.Plugin {
     this.addCommand({ id: "open-all-done", name: t("cmd.openAllDone"), callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
     this.addCommand({ id: "open-eisenhower-matrix", name: t("cmd.openEisenhower"), callback: () => void this.openView(EISENHOWER_VIEW_TYPE) });
     this.addSettingTab(new KanbanSettingTab(this.app, this));
+    let day = localDateKey();
+    this.registerInterval(window.setInterval(() => {
+      const now = localDateKey();
+      if (now === day)
+        return;
+      day = now;
+      this.rerenderBoards();
+      void this.refreshEisenhowerView();
+    }, 5 * 60 * 1e3));
+  }
+  /** Redraw every open board, e.g. after a setting that changes how cards look. */
+  rerenderBoards() {
+    for (const leaf of this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)) {
+      if (leaf.view instanceof KanbanView)
+        leaf.view.render();
+    }
   }
   createBoard() {
     new InputModal(this.app, t("newBoard.title"), t("newBoard.default"), (name) => {
       const path = `${name}.kanban`;
       if (this.app.vault.getAbstractFileByPath(path)) {
-        new import_obsidian3.Notice(t("newBoard.exists", { path }));
+        new import_obsidian4.Notice(t("newBoard.exists", { path }));
         return;
       }
       void (async () => {
@@ -2714,10 +2892,7 @@ var KanbanTodoPlugin = class extends import_obsidian3.Plugin {
     this.settings.language = language;
     setLanguage(language);
     await this.saveSettings();
-    for (const leaf of this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)) {
-      if (leaf.view instanceof KanbanView)
-        leaf.view.render();
-    }
+    this.rerenderBoards();
     this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
       if (l.view instanceof KanbanSkillChartView)
         l.view.render();
@@ -2727,7 +2902,7 @@ var KanbanTodoPlugin = class extends import_obsidian3.Plugin {
   }
 };
 var PRESET_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#84cc16", "#10b981", "#06b6d4", "#6366f1", "#8b5cf6", "#ec4899"];
-var KanbanSettingTab = class extends import_obsidian3.PluginSettingTab {
+var KanbanSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -2736,29 +2911,38 @@ var KanbanSettingTab = class extends import_obsidian3.PluginSettingTab {
     const { containerEl: el } = this;
     el.empty();
     el.addClass("kanban-settings");
-    new import_obsidian3.Setting(el).setName(t("settings.language")).setDesc(t("settings.languageDesc")).addDropdown((d) => {
+    new import_obsidian4.Setting(el).setName(t("settings.language")).setDesc(t("settings.languageDesc")).addDropdown((d) => {
       var _a;
       return d.addOption("auto", t("settings.languageAuto", { lang: LANGUAGE_NAMES[obsidianLanguage()] })).addOption("en", LANGUAGE_NAMES.en).addOption("de", LANGUAGE_NAMES.de).setValue((_a = this.plugin.settings.language) != null ? _a : "auto").onChange(async (value) => {
         await this.plugin.changeLanguage(value);
         this.display();
       });
     });
-    new import_obsidian3.Setting(el).setName(t("settings.labels")).setHeading();
+    new import_obsidian4.Setting(el).setName(t("settings.labels")).setHeading();
     el.createEl("p", { cls: "setting-item-description", text: t("settings.labelsDesc") });
     const list = el.createDiv({ cls: "kanban-settings-labels" });
     this.renderLabels(list);
-    new import_obsidian3.Setting(el).addButton(
+    new import_obsidian4.Setting(el).addButton(
       (b) => b.setButtonText(t("settings.addLabel")).setCta().onClick(() => {
         this.plugin.settings.labels.push({ id: generateId(), name: t("settings.newLabel"), color: PRESET_COLORS[this.plugin.settings.labels.length % PRESET_COLORS.length] });
         void this.plugin.saveSettings();
         this.display();
       })
     );
-    new import_obsidian3.Setting(el).setName(t("settings.skillData")).setHeading();
-    new import_obsidian3.Setting(el).setName(t("settings.reset")).setDesc(t("settings.resetDesc")).addButton((b) => b.setButtonText(t("settings.resetButton")).setWarning().onClick(() => {
+    new import_obsidian4.Setting(el).setName(t("settings.deadlines")).setHeading();
+    new import_obsidian4.Setting(el).setName(t("settings.redOnTop")).setDesc(t("settings.redOnTopDesc")).addToggle((tg) => {
+      var _a;
+      return tg.setValue((_a = this.plugin.settings.dueRedOnTop) != null ? _a : false).onChange(async (value) => {
+        this.plugin.settings.dueRedOnTop = value;
+        await this.plugin.saveSettings();
+        this.plugin.rerenderBoards();
+      });
+    });
+    new import_obsidian4.Setting(el).setName(t("settings.skillData")).setHeading();
+    new import_obsidian4.Setting(el).setName(t("settings.reset")).setDesc(t("settings.resetDesc")).addButton((b) => b.setButtonText(t("settings.resetButton")).setWarning().onClick(() => {
       this.plugin.settings.skillData = { scores: {}, snapshots: [] };
       void this.plugin.saveSettings();
-      new import_obsidian3.Notice(t("settings.resetDone"));
+      new import_obsidian4.Notice(t("settings.resetDone"));
     }));
   }
   renderLabels(container) {
@@ -2782,7 +2966,7 @@ var KanbanSettingTab = class extends import_obsidian3.PluginSettingTab {
       const preview = row.createSpan({ cls: "kanban-label-tag", text: label.name });
       preview.style.setProperty("--lc", label.color);
       const del = row.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("settings.remove") } });
-      (0, import_obsidian3.setIcon)(del, "x");
+      (0, import_obsidian4.setIcon)(del, "x");
       del.addEventListener("click", () => {
         this.plugin.settings.labels.splice(idx, 1);
         void this.plugin.saveSettings();

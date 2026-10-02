@@ -1,7 +1,7 @@
 {
   "id": "kanban-level-up",
   "name": "Kanban Todo Board",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "minAppVersion": "1.8.7",
   "description": "Kanban boards stored as files in your vault, with an Eisenhower matrix, a completion log and a skill radar chart.",
   "author": "Jakob Eilts",

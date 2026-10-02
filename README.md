@@ -88,6 +88,13 @@ What to keep in mind:
 
 ### What's new
 
+**1.2.0**
+
+- **📅 Deadlines** — light yellow the day before, light red on the day and after; optional setting to show due cards first ([details](#deadlines))
+- **Position numbers** on cards in open columns
+- Dragging a card no longer resets the scroll position; the moved card stays in view and is briefly highlighted
+- Fix: dragging a card **down** within the same column dropped it one slot too low
+
 **1.1.2**
 
 - Restores the plugin ID `kanban-level-up` used by 1.0.0 and by the community directory. 1.1.0 had changed it to `kanban-todo-board`, which made Obsidian treat it as a separate plugin — see *Updating from an older version* if you installed 1.1.0
@@ -141,8 +148,23 @@ Obsidian 1.8.7 or newer (since plugin version 1.1.2). Works on desktop and mobil
 - **Add a card**: Click `+ Add card` at the bottom of any column
 - **Edit a card**: Hover over a card → click the pencil icon
 - **Delete a card**: Hover over a card → click the × icon
-- **Move a card**: Drag and drop, or use the ◀ ▶ arrow buttons
-- Cards support a **title**, optional **description**, one or more **labels**, and an optional **Eisenhower category**
+- **Move a card**: Drag and drop, or use the ◀ ▶ arrow buttons. The board keeps its scroll position and briefly highlights the moved card, so you never lose sight of it
+- Cards support a **title**, optional **description**, one or more **labels**, an optional **Eisenhower category** and an optional **deadline**
+- **Position number**: every card in an open column shows its position (1 = top = most important). Done columns show none
+
+### Deadlines
+Give a card a deadline in the card dialog (date picker; the × clears it). The card then shows a small calendar chip and changes colour as the day approaches:
+
+| When | Card |
+|---|---|
+| More than one day before | Normal, chip shows the date |
+| The day before | **Light yellow**, "Due tomorrow" |
+| On the deadline day | **Light red**, "Due today" |
+| After the deadline | Stays **light red**, "Overdue · date" |
+
+Cards in a Done column never change colour. The colours follow your computer's calendar day and update on their own when the date changes, even if Obsidian stays open.
+
+By default deadlines do **not** affect the order of a column. Turn on **Settings → Kanban Todo Board → Show due cards first** to show red cards (due today or overdue) at the top of their column. This only changes the display: the saved order stays as it is, so the card returns to its place once it is done or the deadline moves. Deadlines also appear in the Eisenhower matrix and in the priority duel.
 
 ### Auto-archive
 Cards in Done columns that are **older than 7 days** are automatically hidden from the board view. They continue to count in the Skill Chart and appear on the All Done Todos page. A small note in the Done column shows how many items are archived.
@@ -276,6 +298,7 @@ Labels assigned to a card are shown as color-coded chips on the card. They drive
 | Setting | Description |
 |---|---|
 | **Language** | *Automatic* (follows Obsidian's language), English or German. Command names and ribbon tooltips switch after reloading Obsidian |
+| **Show due cards first** | Off by default. When on, cards due today or overdue appear at the top of their column (display only) |
 | **Labels** | Add, rename, recolor, and delete labels |
 | **Reset skill scores** | Wipes all accumulated Skill Chart scores and snapshot history |
 
@@ -291,6 +314,7 @@ kanban-levelup-obsidian/
 ├── duel-ranker.ts          # Priority duel: ranking model and pair selection (no Obsidian imports, testable in Node)
 ├── duel-modal.ts           # Priority duel: the duel / review dialog
 ├── i18n.ts                 # All UI texts in English and German; add a language by adding a dictionary
+├── deadline.ts             # Deadline logic: due states, colours, chip, "due cards first" ordering
 ├── main.js                 # Bundled output — this is what Obsidian loads
 ├── styles.css              # Styles (uses Obsidian CSS variables — adapts to any theme)
 ├── manifest.json           # Plugin metadata

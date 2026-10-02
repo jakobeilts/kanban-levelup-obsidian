@@ -1,6 +1,6 @@
 {
   "name": "obsidian-kanban-todo-board",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Kanban boards stored as files in your vault, with an Eisenhower matrix, a completion log and a skill radar chart.",
   "main": "main.js",
   "scripts": {

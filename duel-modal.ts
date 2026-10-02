@@ -8,6 +8,7 @@ import { App, Modal, setIcon } from "obsidian";
 import type { EisenhowerQuadrantDef, KanbanCard, KanbanLabel } from "./main";
 import { DuelComparison, DuelRanker, DuelVerdict, pairKey, rolling } from "./duel-ranker";
 import { t, tp, TranslationKey } from "./i18n";
+import { renderDueChip } from "./deadline";
 
 export interface DuelModalOptions {
   columnName: string;
@@ -282,9 +283,10 @@ export class PriorityDuelModal extends Modal {
     const q = this.opts.quadrantDef(card.quadrant);
     const labels = this.opts.labels.filter((l) => card.labelIds?.includes(l.id));
     const isNew = this.opts.unplaced.has(card.id);
-    if (!q && !labels.length && !isNew) return;
+    if (!q && !labels.length && !isNew && !card.dueDate) return;
     const row = parent.createSpan({ cls: "kb-duel-chips" });
     if (isNew) row.createSpan({ cls: "kanban-label-tag kb-duel-new", text: t("duel.newChip") });
+    renderDueChip(row, card.dueDate);
     if (q) {
       const tag = row.createSpan({ cls: "kanban-label-tag kanban-eh-tag", text: q.name, attr: { title: t("card.ehTitle", { hint: q.hint }) } });
       tag.style.setProperty("--lc", q.color);

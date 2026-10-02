@@ -12,6 +12,7 @@ import {
   setIcon,
 } from "obsidian";
 import { PriorityDuelModal } from "./duel-modal";
+import { dueClass, dueState, isDateKey, localDateKey, redFirst, renderDueChip } from "./deadline";
 import { LANGUAGE_NAMES, LanguageSetting, dateLocale, obsidianLanguage, setLanguage, t, tp } from "./i18n";
 import type { DuelComparison } from "./duel-ranker";
 
@@ -38,6 +39,8 @@ export interface KanbanPluginSettings {
   skillData: SkillData;
   /** UI language; "auto" follows Obsidian. */
   language?: LanguageSetting;
+  /** Show cards that are due today or overdue at the top of their column (display only). */
+  dueRedOnTop?: boolean;
 }
 
 export type EisenhowerQuadrant = "do" | "schedule" | "delegate" | "eliminate";
@@ -70,6 +73,8 @@ export interface KanbanCard {
   labelIds?: string[];
   completedAt?: number;
   quadrant?: EisenhowerQuadrant;
+  /** Deadline as a calendar day, "YYYY-MM-DD" (see deadline.ts). */
+  dueDate?: string;
 }
 
 export interface KanbanColumn {
@@ -198,8 +203,13 @@ export class KanbanView extends TextFileView {
       delete card.completedAt;
     }
 
-    const insertAt = toIndex !== undefined ? Math.min(toIndex, toCol.cards.length) : toCol.cards.length;
+    // Moving down inside the same column: the drop index was taken before the card was
+    // removed, so everything below has shifted up by one.
+    let target = toIndex;
+    if (target !== undefined && fromCol === toCol && fromIdx < target) target -= 1;
+    const insertAt = target !== undefined ? Math.min(target, toCol.cards.length) : toCol.cards.length;
     toCol.cards.splice(insertAt, 0, card);
+    this.focusCardId = card.id;
     this.persist();
 
     try {
@@ -215,8 +225,20 @@ export class KanbanView extends TextFileView {
     void this.plugin.refreshAllDoneView();
   }
 
+  /** Card to scroll into view and highlight after the next render (set by moveCard). */
+  private focusCardId: string | null = null;
+
   render() {
     const el = this.contentEl;
+    // render() rebuilds the whole board, which would reset every scroll position to
+    // the top/left. Remember them and put them back afterwards.
+    const prevBoard = el.querySelector<HTMLElement>(".kanban-board");
+    const prevLeft = prevBoard?.scrollLeft ?? 0;
+    const prevTops = new Map<string, number>();
+    el.querySelectorAll<HTMLElement>(".kanban-cards[data-col-id]").forEach((n) => {
+      prevTops.set(n.getAttribute("data-col-id") ?? "", n.scrollTop);
+    });
+
     el.empty();
     el.addClass("kanban-root");
 
@@ -278,6 +300,26 @@ export class KanbanView extends TextFileView {
         this.persist();
       }).open();
     });
+
+    board.scrollLeft = prevLeft;
+    board.querySelectorAll<HTMLElement>(".kanban-cards[data-col-id]").forEach((n) => {
+      const top = prevTops.get(n.getAttribute("data-col-id") ?? "");
+      if (top) n.scrollTop = top;
+    });
+    this.revealFocusedCard(board);
+  }
+
+  /** After a move: keep the moved card on screen and flash it briefly, so the eye can follow it. */
+  private revealFocusedCard(board: HTMLElement): void {
+    const id = this.focusCardId;
+    this.focusCardId = null;
+    if (!id) return;
+    const cardEl = Array.from(board.querySelectorAll<HTMLElement>(".kanban-card[data-card-id]"))
+      .find((n) => n.getAttribute("data-card-id") === id);
+    if (!cardEl) return;
+    cardEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+    cardEl.addClass("is-just-moved");
+    window.setTimeout(() => cardEl.removeClass("is-just-moved"), 900);
   }
 
   private dropColumnAt(targetIndex: number): void {
@@ -294,10 +336,12 @@ export class KanbanView extends TextFileView {
 
   private renderColumn(board: HTMLElement, col: KanbanColumn) {
     const now = Date.now();
-    const visibleCards = col.isDone
+    const shownCards = col.isDone
       ? col.cards.filter((c) => !c.completedAt || now - c.completedAt < ONE_WEEK_MS)
       : col.cards;
-    const hiddenCount = col.isDone ? col.cards.length - visibleCards.length : 0;
+    const hiddenCount = col.isDone ? col.cards.length - shownCards.length : 0;
+    // Display order only: the saved order in col.cards is never changed by this.
+    const visibleCards = !col.isDone && this.plugin.settings.dueRedOnTop ? redFirst(shownCards) : shownCards;
 
     const colEl = board.createDiv({ cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
     const hdr = colEl.createDiv({ cls: "kanban-col-hdr", attr: { draggable: "true" } });
@@ -381,7 +425,7 @@ export class KanbanView extends TextFileView {
       }
     });
 
-    const cardsEl = colEl.createDiv({ cls: "kanban-cards" });
+    const cardsEl = colEl.createDiv({ cls: "kanban-cards", attr: { "data-col-id": col.id } });
 
     // Cards container drop: used when dragging a card onto an empty column or below all cards
     cardsEl.addEventListener("dragover", (e) => {
@@ -390,7 +434,7 @@ export class KanbanView extends TextFileView {
       // Only highlight the column if not hovering over a specific card
       if (!(e.target instanceof Element) || !e.target.closest(".kanban-card")) {
         colEl.addClass("drag-over");
-        this.cardDropTarget = { col, index: visibleCards.length };
+        this.cardDropTarget = { col, index: col.cards.length };
       }
     });
     cardsEl.addEventListener("dragleave", (e) => {
@@ -413,7 +457,7 @@ export class KanbanView extends TextFileView {
       }
     });
 
-    visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards.length));
+    visibleCards.forEach((card, cardIdx) => this.renderCard(cardsEl, card, col, cardIdx, visibleCards));
 
     if (hiddenCount > 0) {
       const archivedNote = cardsEl.createDiv({ cls: "kanban-archived-note" });
@@ -427,9 +471,10 @@ export class KanbanView extends TextFileView {
     setIcon(plusIcon, "plus");
     addBtn.createSpan({ text: t("col.addCard") });
     addBtn.addEventListener("click", () => {
-      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds, quadrant) => {
+      new CardModal(this.app, this.plugin.settings.labels, null, (title, desc, labelIds, quadrant, dueDate) => {
         void (async () => {
           const card: KanbanCard = { id: generateId(), title, description: desc, labelIds, quadrant, createdAt: Date.now() };
+          if (dueDate) card.dueDate = dueDate;
           if (col.isDone) {
             card.completedAt = Date.now();
             if (labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
@@ -499,8 +544,10 @@ export class KanbanView extends TextFileView {
     void this.plugin.refreshAllDoneView();
   }
 
-  private renderCard(container: HTMLElement, card: KanbanCard, col: KanbanColumn, cardIdx: number, _totalVisible: number) {
-    const el = container.createDiv({ cls: "kanban-card", attr: { draggable: "true" } });
+  private renderCard(container: HTMLElement, card: KanbanCard, col: KanbanColumn, cardIdx: number, visibleCards: KanbanCard[]) {
+    // Deadline colours only for open work; a done card needs no warning.
+    const due = col.isDone ? "" : dueClass(dueState(card.dueDate));
+    const el = container.createDiv({ cls: "kanban-card" + (due ? " " + due : ""), attr: { draggable: "true", "data-card-id": card.id } });
 
     el.addEventListener("dragstart", (e) => {
       if (this.draggedCol) return; // column drag takes priority
@@ -537,14 +584,10 @@ export class KanbanView extends TextFileView {
       });
       el.addClass(isBefore ? "card-drop-before" : "card-drop-after");
 
-      // Figure out the target index in the actual (full) cards array
-      // cardIdx is the index within visibleCards; we need index in col.cards
-      const visibleCard = col.isDone
-        ? col.cards.filter((c) => !c.completedAt || Date.now() - (c.completedAt ?? 0) < ONE_WEEK_MS)
-        : col.cards;
+      // cardIdx is the position in the displayed list (archived cards hidden, due cards
+      // possibly pinned to the top); map it back to an index in col.cards.
       const targetVisible = isBefore ? cardIdx : cardIdx + 1;
-      // Map visible index back to full cards index
-      const targetCard = visibleCard[targetVisible];
+      const targetCard = visibleCards[targetVisible];
       const targetIdx = targetCard ? col.cards.indexOf(targetCard) : col.cards.length;
 
       this.cardDropTarget = { col, index: targetIdx };
@@ -553,13 +596,18 @@ export class KanbanView extends TextFileView {
     });
 
     const body = el.createDiv({ cls: "kanban-card-body" });
-    body.createDiv({ cls: "kanban-card-title", text: card.title });
+    const titleRow = body.createDiv({ cls: "kanban-card-titlerow" });
+    if (!col.isDone) {
+      titleRow.createSpan({ cls: "kanban-card-pos", text: String(cardIdx + 1), attr: { title: t("card.position", { n: cardIdx + 1 }) } });
+    }
+    titleRow.createDiv({ cls: "kanban-card-title", text: card.title });
     if (card.description) body.createDiv({ cls: "kanban-card-desc", text: card.description });
 
     const qDef = quadrantDef(card.quadrant);
     const cardLabels = this.plugin.settings.labels.filter((l) => card.labelIds?.includes(l.id));
-    if (qDef || cardLabels.length) {
+    if (qDef || cardLabels.length || card.dueDate) {
       const row = el.createDiv({ cls: "kanban-card-labels" });
+      renderDueChip(row, card.dueDate, col.isDone);
       if (qDef) {
         const qTag = row.createSpan({ cls: "kanban-label-tag kanban-eh-tag", text: qDef.name, attr: { title: t("card.ehTitle", { hint: qDef.hint }) } });
         qTag.style.setProperty("--lc", qDef.color);
@@ -589,11 +637,12 @@ export class KanbanView extends TextFileView {
     setIcon(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant) => {
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
         void (async () => {
           if (col.isDone && card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
           card.title = title; card.description = desc; card.labelIds = labelIds;
           if (quadrant) card.quadrant = quadrant; else delete card.quadrant;
+          if (dueDate) card.dueDate = dueDate; else delete card.dueDate;
           if (col.isDone && labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
           this.persist();
           void this.plugin.refreshAllDoneView();
@@ -994,7 +1043,8 @@ export class EisenhowerMatrixView extends ItemView {
 
   private renderCard(container: HTMLElement, entry: MatrixEntry): void {
     const { card, column } = entry;
-    const el = container.createDiv({ cls: "kanban-eh-card", attr: { draggable: "true" } });
+    const due = dueClass(dueState(card.dueDate));
+    const el = container.createDiv({ cls: "kanban-eh-card" + (due ? " " + due : ""), attr: { draggable: "true" } });
 
     el.addEventListener("dragstart", (e) => {
       this.dragged = card;
@@ -1043,6 +1093,7 @@ export class EisenhowerMatrixView extends ItemView {
 
     const meta = el.createDiv({ cls: "kanban-eh-card-meta" });
     meta.createSpan({ cls: "kanban-eh-card-col", text: column.name });
+    renderDueChip(meta, card.dueDate);
     this.plugin.settings.labels
       .filter((l) => card.labelIds?.includes(l.id))
       .forEach((l) => {
@@ -1063,7 +1114,7 @@ export class EisenhowerMatrixView extends ItemView {
     setIcon(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant) => {
+      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
         void (async () => {
           await this.applyCardChange(card.id, (c) => {
             c.title = title;
@@ -1071,6 +1122,8 @@ export class EisenhowerMatrixView extends ItemView {
             c.labelIds = labelIds;
             if (quadrant) c.quadrant = quadrant;
             else delete c.quadrant;
+            if (dueDate) c.dueDate = dueDate;
+            else delete c.dueDate;
           });
           await this.render();
         })();
@@ -1407,7 +1460,7 @@ class ColumnModal extends Modal {
 }
 
 class CardModal extends Modal {
-  constructor(app: App, private allLabels: KanbanLabel[], private card: KanbanCard | null, private cb: (t: string, d: string, l: string[], q?: EisenhowerQuadrant) => void) { super(app); }
+  constructor(app: App, private allLabels: KanbanLabel[], private card: KanbanCard | null, private cb: (t: string, d: string, l: string[], q?: EisenhowerQuadrant, due?: string) => void) { super(app); }
   onOpen() {
     const { contentEl: el } = this;
     el.addClass("kanban-modal");
@@ -1420,6 +1473,14 @@ class CardModal extends Modal {
     el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.description") });
     const descInput = el.createEl("textarea", { cls: "kanban-modal-textarea", attr: { placeholder: t("cardModal.descriptionPlaceholder"), rows: "3" } });
     if (this.card?.description) descInput.value = this.card.description;
+
+    el.createEl("label", { cls: "kanban-modal-label", text: t("cardModal.dueDate") });
+    const dueRow = el.createDiv({ cls: "kanban-modal-due-row" });
+    const dueInput = dueRow.createEl("input", { cls: "kanban-modal-input kanban-modal-date", attr: { type: "date", value: this.card?.dueDate ?? "" } });
+    const clearDue = dueRow.createEl("button", { cls: "kb-icon-btn", attr: { title: t("cardModal.clearDue") } });
+    setIcon(clearDue, "x");
+    clearDue.addEventListener("click", (e) => { e.preventDefault(); dueInput.value = ""; });
+    el.createDiv({ cls: "kanban-modal-done-hint", text: t("cardModal.dueHint") });
 
     const selected = new Set<string>(this.card?.labelIds ?? []);
 
@@ -1470,7 +1531,7 @@ class CardModal extends Modal {
     save.addEventListener("click", () => {
       const title = titleInput.value.trim();
       if (!title) { new Notice(t("cardModal.needTitle")); return; }
-      this.cb(title, descInput.value.trim(), Array.from(selected), quadrant);
+      this.cb(title, descInput.value.trim(), Array.from(selected), quadrant, isDateKey(dueInput.value) ? dueInput.value : undefined);
       this.close();
     });
     titleInput.addEventListener("keydown", (e) => { if (e.key === "Enter") save.click(); });
@@ -1516,6 +1577,23 @@ export default class KanbanTodoPlugin extends Plugin {
     this.addCommand({ id: "open-eisenhower-matrix", name: t("cmd.openEisenhower"), callback: () => void this.openView(EISENHOWER_VIEW_TYPE) });
 
     this.addSettingTab(new KanbanSettingTab(this.app, this));
+
+    // Deadline colours depend on today's date: redraw once the day changes while Obsidian stays open.
+    let day = localDateKey();
+    this.registerInterval(window.setInterval(() => {
+      const now = localDateKey();
+      if (now === day) return;
+      day = now;
+      this.rerenderBoards();
+      void this.refreshEisenhowerView();
+    }, 5 * 60 * 1000));
+  }
+
+  /** Redraw every open board, e.g. after a setting that changes how cards look. */
+  rerenderBoards(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)) {
+      if (leaf.view instanceof KanbanView) leaf.view.render();
+    }
   }
 
   createBoard(): void {
@@ -1575,9 +1653,7 @@ export default class KanbanTodoPlugin extends Plugin {
     this.settings.language = language;
     setLanguage(language);
     await this.saveSettings();
-    for (const leaf of this.app.workspace.getLeavesOfType(KANBAN_VIEW_TYPE)) {
-      if (leaf.view instanceof KanbanView) leaf.view.render();
-    }
+    this.rerenderBoards();
     this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
       if (l.view instanceof KanbanSkillChartView) l.view.render();
     });
@@ -1623,6 +1699,18 @@ class KanbanSettingTab extends PluginSettingTab {
         this.display();
       })
     );
+
+    new Setting(el).setName(t("settings.deadlines")).setHeading();
+    new Setting(el)
+      .setName(t("settings.redOnTop"))
+      .setDesc(t("settings.redOnTopDesc"))
+      .addToggle((tg) => tg
+        .setValue(this.plugin.settings.dueRedOnTop ?? false)
+        .onChange(async (value) => {
+          this.plugin.settings.dueRedOnTop = value;
+          await this.plugin.saveSettings();
+          this.plugin.rerenderBoards();
+        }));
 
     new Setting(el).setName(t("settings.skillData")).setHeading();
     new Setting(el)
