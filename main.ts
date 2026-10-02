@@ -3,8 +3,10 @@ import {
   ItemView,
   Modal,
   Notice,
+  Platform,
   Plugin,
   PluginSettingTab,
+  Scope,
   Setting,
   TextFileView,
   TFile,
@@ -125,6 +127,29 @@ function svgEl(tag: keyof SVGElementTagNameMap, attrs: Record<string, string> = 
 
 const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** How many steps Ctrl/Cmd+Z can go back per open board. */
+const HISTORY_LIMIT = 50;
+
+interface HistoryEntry {
+  /** Board JSON before the change. */
+  board: string;
+  /** What the change was, already translated, for the "Undone: …" notice. */
+  action: string;
+}
+
+/** Skill chart contribution of a board: one point per label on every card in a done column. */
+function skillContribution(board: KanbanBoard): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const col of board.columns ?? []) {
+    if (!col.isDone) continue;
+    for (const card of col.cards ?? []) for (const id of card.labelIds ?? []) out[id] = (out[id] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Shortcut hint shown in notices, e.g. "⌘Z" on macOS, "Strg+Z"/"Ctrl+Z" elsewhere. */
+function undoKeyHint(): string { return Platform.isMacOS ? "⌘Z" : t("history.keyCtrl"); }
+
 const DEFAULT_SETTINGS: KanbanPluginSettings = {
   labels: [
     { id: generateId(), name: "Bug", color: "#ef4444" },
@@ -161,9 +186,28 @@ export class KanbanView extends TextFileView {
   private draggedCol: KanbanColumn | null = null;
   private colDropIndex: number | null = null;
 
+  // Undo/redo: snapshots of the board before each change. "committed" is the board as
+  // it was after the last recorded change; persist() pushes it before saving the new one.
+  private undoStack: HistoryEntry[] = [];
+  private redoStack: HistoryEntry[] = [];
+  private committed = "";
+
   constructor(leaf: WorkspaceLeaf, plugin: KanbanTodoPlugin) {
     super(leaf);
     this.plugin = plugin;
+    // Active while this board is the focused tab; modals have their own scope and win.
+    this.scope = new Scope(this.app.scope);
+    const bind = (mods: ("Mod" | "Ctrl" | "Shift")[], key: string, fn: () => void) =>
+      this.scope?.register(mods, key, () => { fn(); return false; });
+    // With Shift held the key arrives as "Z", so both spellings are registered.
+    bind(["Mod"], "z", () => void this.undo());
+    for (const k of ["z", "Z"]) bind(["Mod", "Shift"], k, () => void this.redo());
+    bind(["Mod"], "y", () => void this.redo());
+    if (Platform.isMacOS) {
+      // Ctrl+Z in addition to the usual Cmd+Z, for muscle memory from Windows.
+      bind(["Ctrl"], "z", () => void this.undo());
+      for (const k of ["z", "Z"]) bind(["Ctrl", "Shift"], k, () => void this.redo());
+    }
   }
 
   getViewType() { return KANBAN_VIEW_TYPE; }
@@ -176,20 +220,92 @@ export class KanbanView extends TextFileView {
       const parsed = JSON.parse(data) as KanbanBoard;
       this.boardData = parsed?.columns ? parsed : defaultBoard();
     } catch { this.boardData = defaultBoard(); }
+    const loaded = JSON.stringify(this.boardData);
+    if (loaded !== this.committed) {
+      // A different file, or the file changed on disk (sync, git, another device):
+      // the old history no longer fits this board.
+      this.undoStack = [];
+      this.redoStack = [];
+      this.committed = loaded;
+    }
     if (this.file) this.plugin.lastBoardPath = this.file.path;
     this.render();
   }
 
-  clear() { this.boardData = defaultBoard(); }
+  clear() {
+    this.boardData = defaultBoard();
+    this.undoStack = [];
+    this.redoStack = [];
+    this.committed = "";
+  }
 
-  private persist(): void {
+  /** Record the change in the undo history, save and redraw. */
+  private persist(action: string = t("action.generic")): void {
+    const now = JSON.stringify(this.boardData);
+    if (now !== this.committed) {
+      this.undoStack.push({ board: this.committed, action });
+      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+      this.committed = now;
+    }
     this.requestSave();
     this.render();
     void this.plugin.refreshEisenhowerView();
   }
 
   /** Save + re-render after another view (e.g. the Eisenhower matrix) mutated this board. */
-  applyExternalChange(): void { this.requestSave(); this.render(); }
+  applyExternalChange(): void {
+    const now = JSON.stringify(this.boardData);
+    if (now !== this.committed) {
+      this.undoStack.push({ board: this.committed, action: t("action.external") });
+      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+      this.committed = now;
+    }
+    this.requestSave();
+    this.render();
+  }
+
+  async undo(): Promise<void> {
+    const entry = this.undoStack.pop();
+    if (!entry) { new Notice(t("history.nothingToUndo")); return; }
+    this.redoStack.push({ board: this.committed, action: entry.action });
+    await this.restore(entry.board);
+    new Notice(t("history.undone", { action: entry.action }));
+  }
+
+  async redo(): Promise<void> {
+    const entry = this.redoStack.pop();
+    if (!entry) { new Notice(t("history.nothingToRedo")); return; }
+    this.undoStack.push({ board: this.committed, action: entry.action });
+    await this.restore(entry.board);
+    new Notice(t("history.redone", { action: entry.action }));
+  }
+
+  /**
+   * Put a recorded board back. Skill chart points are event-based (added when a card
+   * enters a done column, removed when it leaves), so they are corrected by the
+   * difference in done-column labels between the two board states.
+   */
+  private async restore(json: string): Promise<void> {
+    const before = skillContribution(this.boardData);
+    this.boardData = JSON.parse(json) as KanbanBoard;
+    this.committed = json;
+    const after = skillContribution(this.boardData);
+    const delta: Record<string, number> = {};
+    for (const id of new Set(Object.keys(before).concat(Object.keys(after)))) {
+      const d = (after[id] ?? 0) - (before[id] ?? 0);
+      if (d) delta[id] = d;
+    }
+    this.requestSave();
+    this.render();
+    void this.plugin.refreshEisenhowerView();
+    if (Object.keys(delta).length) await this.plugin.applySkillDelta(delta);
+    void this.plugin.refreshAllDoneView();
+  }
+
+  canUndo(): boolean { return this.undoStack.length > 0; }
+  canRedo(): boolean { return this.redoStack.length > 0; }
 
   private async moveCard(card: KanbanCard, fromCol: KanbanColumn, toCol: KanbanColumn, toIndex?: number): Promise<void> {
     const fromIdx = fromCol.cards.findIndex((c) => c.id === card.id);
@@ -210,7 +326,7 @@ export class KanbanView extends TextFileView {
     const insertAt = target !== undefined ? Math.min(target, toCol.cards.length) : toCol.cards.length;
     toCol.cards.splice(insertAt, 0, card);
     this.focusCardId = card.id;
-    this.persist();
+    this.persist(t("action.moveCard", { title: card.title }));
 
     try {
       if (wasInDone && card.labelIds?.length) {
@@ -297,7 +413,7 @@ export class KanbanView extends TextFileView {
     addColBtn.addEventListener("click", () => {
       new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone }) => {
         this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
-        this.persist();
+        this.persist(t("action.addColumn", { name }));
       }).open();
     });
 
@@ -331,7 +447,7 @@ export class KanbanView extends TextFileView {
     this.boardData.columns.splice(fromIdx, 1);
     const insertAt = targetIndex > fromIdx ? targetIndex - 1 : targetIndex;
     this.boardData.columns.splice(insertAt, 0, col);
-    this.persist();
+    this.persist(t("action.moveColumn", { name: col.name }));
   }
 
   private renderColumn(board: HTMLElement, col: KanbanColumn) {
@@ -390,7 +506,7 @@ export class KanbanView extends TextFileView {
           }
           col.name = name;
           col.isDone = isDone;
-          this.persist();
+          this.persist(t("action.editColumn", { name }));
           void this.plugin.refreshAllDoneView();
         })();
       }).open();
@@ -480,7 +596,7 @@ export class KanbanView extends TextFileView {
             if (labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
           }
           col.cards.push(card);
-          this.persist();
+          this.persist(t("action.addCard", { title }));
           void this.plugin.refreshAllDoneView();
         })();
       }).open();
@@ -529,7 +645,7 @@ export class KanbanView extends TextFileView {
     const added = col.cards.filter((c) => !rank.has(c.id));
     col.cards = ranked.concat(added);
     col.rankedIds = ranked.map((c) => c.id);
-    this.persist();
+    this.persist(t("action.reorder", { name: col.name }));
     new Notice(col.cards.map((c) => c.id).join() === before ? t("notice.orderConfirmed", { name: col.name }) : t("notice.reordered", { name: col.name }));
   }
 
@@ -540,7 +656,9 @@ export class KanbanView extends TextFileView {
       }
     }
     this.boardData.columns = this.boardData.columns.filter((c) => c.id !== col.id);
-    this.persist();
+    const action = t("action.deleteColumn", { name: col.name });
+    this.persist(action);
+    new Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
     void this.plugin.refreshAllDoneView();
   }
 
@@ -644,7 +762,7 @@ export class KanbanView extends TextFileView {
           if (quadrant) card.quadrant = quadrant; else delete card.quadrant;
           if (dueDate) card.dueDate = dueDate; else delete card.dueDate;
           if (col.isDone && labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
-          this.persist();
+          this.persist(t("action.editCard", { title }));
           void this.plugin.refreshAllDoneView();
         })();
       }).open();
@@ -657,7 +775,9 @@ export class KanbanView extends TextFileView {
       void (async () => {
         if (col.isDone && card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
         col.cards = col.cards.filter((c) => c.id !== card.id);
-        this.persist();
+        const action = t("action.deleteCard", { title: card.title });
+        this.persist(action);
+        new Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
         void this.plugin.refreshAllDoneView();
       })();
     });
@@ -1575,6 +1695,27 @@ export default class KanbanTodoPlugin extends Plugin {
     this.addCommand({ id: "open-skill-chart", name: t("cmd.openSkill"), callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
     this.addCommand({ id: "open-all-done", name: t("cmd.openAllDone"), callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
     this.addCommand({ id: "open-eisenhower-matrix", name: t("cmd.openEisenhower"), callback: () => void this.openView(EISENHOWER_VIEW_TYPE) });
+    // Also in the command palette, so the shortcuts can be re-assigned under Settings → Hotkeys.
+    this.addCommand({
+      id: "undo-board-change",
+      name: t("cmd.undo"),
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(KanbanView);
+        if (!view || !view.canUndo()) return false;
+        if (!checking) void view.undo();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "redo-board-change",
+      name: t("cmd.redo"),
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(KanbanView);
+        if (!view || !view.canRedo()) return false;
+        if (!checking) void view.redo();
+        return true;
+      },
+    });
 
     this.addSettingTab(new KanbanSettingTab(this.app, this));
 
@@ -1619,6 +1760,17 @@ export default class KanbanTodoPlugin extends Plugin {
   async updateSkillScores(labelIds: string[], delta: number): Promise<void> {
     for (const id of labelIds) {
       this.settings.skillData.scores[id] = Math.max(0, (this.settings.skillData.scores[id] ?? 0) + delta);
+    }
+    await this.saveSettings();
+    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
+      if (l.view instanceof KanbanSkillChartView) l.view.render();
+    });
+  }
+
+  /** Add per-label point changes to the skill chart (used by undo/redo). */
+  async applySkillDelta(delta: Record<string, number>): Promise<void> {
+    for (const id of Object.keys(delta)) {
+      this.settings.skillData.scores[id] = Math.max(0, (this.settings.skillData.scores[id] ?? 0) + delta[id]);
     }
     await this.saveSettings();
     this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {

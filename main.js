@@ -297,6 +297,23 @@ var en = {
   "due.overdue": "Overdue \xB7 {date}",
   "due.title": "Deadline: {date}",
   "notice.duelNeedsTwo": "Add at least two cards to prioritise this column.",
+  "history.undone": "Undone: {action}",
+  "history.redone": "Redone: {action}",
+  "history.nothingToUndo": "Nothing to undo on this board.",
+  "history.nothingToRedo": "Nothing to redo on this board.",
+  "history.deletedHint": "{action}. {key} brings it back.",
+  "history.keyCtrl": "Ctrl+Z",
+  "action.generic": "Change",
+  "action.external": "Change from the Eisenhower matrix",
+  "action.addCard": 'Card "{title}" added',
+  "action.editCard": 'Card "{title}" edited',
+  "action.deleteCard": 'Card "{title}" deleted',
+  "action.moveCard": 'Card "{title}" moved',
+  "action.addColumn": 'Column "{name}" added',
+  "action.editColumn": 'Column "{name}" changed',
+  "action.deleteColumn": 'Column "{name}" deleted',
+  "action.moveColumn": 'Column "{name}" moved',
+  "action.reorder": '"{name}" reordered by duel',
   "notice.columnGone": "That column no longer exists.",
   "notice.orderConfirmed": 'Order of "{name}" confirmed.',
   "notice.reordered": '"{name}" reordered.',
@@ -373,6 +390,8 @@ var en = {
   "cmd.openSkill": "Open skill chart",
   "cmd.openAllDone": "Open all done todos",
   "cmd.openEisenhower": "Open eisenhower matrix",
+  "cmd.undo": "Undo last board change",
+  "cmd.redo": "Redo board change",
   "ribbon.newBoard": "New kanban board",
   "ribbon.allDone": "All done todos",
   "ribbon.skill": "Skill chart",
@@ -541,6 +560,23 @@ var de = {
   "due.overdue": "\xDCberf\xE4llig \xB7 {date}",
   "due.title": "Deadline: {date}",
   "notice.duelNeedsTwo": "F\xFCge mindestens zwei Karten hinzu, um diese Spalte zu priorisieren.",
+  "history.undone": "R\xFCckg\xE4ngig: {action}",
+  "history.redone": "Wiederhergestellt: {action}",
+  "history.nothingToUndo": "Auf diesem Board gibt es nichts r\xFCckg\xE4ngig zu machen.",
+  "history.nothingToRedo": "Auf diesem Board gibt es nichts wiederherzustellen.",
+  "history.deletedHint": "{action}. {key} holt es zur\xFCck.",
+  "history.keyCtrl": "Strg+Z",
+  "action.generic": "\xC4nderung",
+  "action.external": "\xC4nderung aus der Eisenhower-Matrix",
+  "action.addCard": "Karte \u201E{title}\u201C hinzugef\xFCgt",
+  "action.editCard": "Karte \u201E{title}\u201C bearbeitet",
+  "action.deleteCard": "Karte \u201E{title}\u201C gel\xF6scht",
+  "action.moveCard": "Karte \u201E{title}\u201C verschoben",
+  "action.addColumn": "Spalte \u201E{name}\u201C hinzugef\xFCgt",
+  "action.editColumn": "Spalte \u201E{name}\u201C ge\xE4ndert",
+  "action.deleteColumn": "Spalte \u201E{name}\u201C gel\xF6scht",
+  "action.moveColumn": "Spalte \u201E{name}\u201C verschoben",
+  "action.reorder": "\u201E{name}\u201C per Duell neu sortiert",
   "notice.columnGone": "Diese Spalte gibt es nicht mehr.",
   "notice.orderConfirmed": "Reihenfolge von \u201E{name}\u201C best\xE4tigt.",
   "notice.reordered": "\u201E{name}\u201C neu sortiert.",
@@ -617,6 +653,8 @@ var de = {
   "cmd.openSkill": "Skill-Diagramm \xF6ffnen",
   "cmd.openAllDone": "Alle erledigten Aufgaben \xF6ffnen",
   "cmd.openEisenhower": "Eisenhower-Matrix \xF6ffnen",
+  "cmd.undo": "Letzte Board-\xC4nderung r\xFCckg\xE4ngig machen",
+  "cmd.redo": "Board-\xC4nderung wiederherstellen",
   "ribbon.newBoard": "Neues Kanban-Board",
   "ribbon.allDone": "Alle erledigten Aufgaben",
   "ribbon.skill": "Skill-Diagramm",
@@ -1342,6 +1380,22 @@ function svgEl(tag, attrs = {}) {
   return createSvg(tag, { attr: attrs });
 }
 var ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1e3;
+var HISTORY_LIMIT = 50;
+function skillContribution(board) {
+  var _a, _b, _c, _d;
+  const out = {};
+  for (const col of (_a = board.columns) != null ? _a : []) {
+    if (!col.isDone)
+      continue;
+    for (const card of (_b = col.cards) != null ? _b : [])
+      for (const id of (_c = card.labelIds) != null ? _c : [])
+        out[id] = ((_d = out[id]) != null ? _d : 0) + 1;
+  }
+  return out;
+}
+function undoKeyHint() {
+  return import_obsidian4.Platform.isMacOS ? "\u2318Z" : t("history.keyCtrl");
+}
 var DEFAULT_SETTINGS = {
   labels: [
     { id: generateId(), name: "Bug", color: "#ef4444" },
@@ -1371,9 +1425,31 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     // Column drag state
     this.draggedCol = null;
     this.colDropIndex = null;
+    // Undo/redo: snapshots of the board before each change. "committed" is the board as
+    // it was after the last recorded change; persist() pushes it before saving the new one.
+    this.undoStack = [];
+    this.redoStack = [];
+    this.committed = "";
     /** Card to scroll into view and highlight after the next render (set by moveCard). */
     this.focusCardId = null;
     this.plugin = plugin;
+    this.scope = new import_obsidian4.Scope(this.app.scope);
+    const bind = (mods, key, fn) => {
+      var _a;
+      return (_a = this.scope) == null ? void 0 : _a.register(mods, key, () => {
+        fn();
+        return false;
+      });
+    };
+    bind(["Mod"], "z", () => void this.undo());
+    for (const k of ["z", "Z"])
+      bind(["Mod", "Shift"], k, () => void this.redo());
+    bind(["Mod"], "y", () => void this.redo());
+    if (import_obsidian4.Platform.isMacOS) {
+      bind(["Ctrl"], "z", () => void this.undo());
+      for (const k of ["z", "Z"])
+        bind(["Ctrl", "Shift"], k, () => void this.redo());
+    }
   }
   getViewType() {
     return KANBAN_VIEW_TYPE;
@@ -1395,22 +1471,98 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     } catch (e) {
       this.boardData = defaultBoard();
     }
+    const loaded = JSON.stringify(this.boardData);
+    if (loaded !== this.committed) {
+      this.undoStack = [];
+      this.redoStack = [];
+      this.committed = loaded;
+    }
     if (this.file)
       this.plugin.lastBoardPath = this.file.path;
     this.render();
   }
   clear() {
     this.boardData = defaultBoard();
+    this.undoStack = [];
+    this.redoStack = [];
+    this.committed = "";
   }
-  persist() {
+  /** Record the change in the undo history, save and redraw. */
+  persist(action = t("action.generic")) {
+    const now = JSON.stringify(this.boardData);
+    if (now !== this.committed) {
+      this.undoStack.push({ board: this.committed, action });
+      if (this.undoStack.length > HISTORY_LIMIT)
+        this.undoStack.shift();
+      this.redoStack = [];
+      this.committed = now;
+    }
     this.requestSave();
     this.render();
     void this.plugin.refreshEisenhowerView();
   }
   /** Save + re-render after another view (e.g. the Eisenhower matrix) mutated this board. */
   applyExternalChange() {
+    const now = JSON.stringify(this.boardData);
+    if (now !== this.committed) {
+      this.undoStack.push({ board: this.committed, action: t("action.external") });
+      if (this.undoStack.length > HISTORY_LIMIT)
+        this.undoStack.shift();
+      this.redoStack = [];
+      this.committed = now;
+    }
     this.requestSave();
     this.render();
+  }
+  async undo() {
+    const entry = this.undoStack.pop();
+    if (!entry) {
+      new import_obsidian4.Notice(t("history.nothingToUndo"));
+      return;
+    }
+    this.redoStack.push({ board: this.committed, action: entry.action });
+    await this.restore(entry.board);
+    new import_obsidian4.Notice(t("history.undone", { action: entry.action }));
+  }
+  async redo() {
+    const entry = this.redoStack.pop();
+    if (!entry) {
+      new import_obsidian4.Notice(t("history.nothingToRedo"));
+      return;
+    }
+    this.undoStack.push({ board: this.committed, action: entry.action });
+    await this.restore(entry.board);
+    new import_obsidian4.Notice(t("history.redone", { action: entry.action }));
+  }
+  /**
+   * Put a recorded board back. Skill chart points are event-based (added when a card
+   * enters a done column, removed when it leaves), so they are corrected by the
+   * difference in done-column labels between the two board states.
+   */
+  async restore(json) {
+    var _a, _b;
+    const before = skillContribution(this.boardData);
+    this.boardData = JSON.parse(json);
+    this.committed = json;
+    const after = skillContribution(this.boardData);
+    const delta = {};
+    for (const id of new Set(Object.keys(before).concat(Object.keys(after)))) {
+      const d = ((_a = after[id]) != null ? _a : 0) - ((_b = before[id]) != null ? _b : 0);
+      if (d)
+        delta[id] = d;
+    }
+    this.requestSave();
+    this.render();
+    void this.plugin.refreshEisenhowerView();
+    if (Object.keys(delta).length)
+      await this.plugin.applySkillDelta(delta);
+    void this.plugin.refreshAllDoneView();
+  }
+  canUndo() {
+    return this.undoStack.length > 0;
+  }
+  canRedo() {
+    return this.redoStack.length > 0;
   }
   async moveCard(card, fromCol, toCol, toIndex) {
     var _a, _b;
@@ -1430,7 +1582,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     const insertAt = target !== void 0 ? Math.min(target, toCol.cards.length) : toCol.cards.length;
     toCol.cards.splice(insertAt, 0, card);
     this.focusCardId = card.id;
-    this.persist();
+    this.persist(t("action.moveCard", { title: card.title }));
     try {
       if (wasInDone && ((_a = card.labelIds) == null ? void 0 : _a.length)) {
         await this.plugin.updateSkillScores(card.labelIds, -1);
@@ -1507,7 +1659,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     addColBtn.addEventListener("click", () => {
       new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone }) => {
         this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
-        this.persist();
+        this.persist(t("action.addColumn", { name }));
       }).open();
     });
     board.scrollLeft = prevLeft;
@@ -1543,7 +1695,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     this.boardData.columns.splice(fromIdx, 1);
     const insertAt = targetIndex > fromIdx ? targetIndex - 1 : targetIndex;
     this.boardData.columns.splice(insertAt, 0, col);
-    this.persist();
+    this.persist(t("action.moveColumn", { name: col.name }));
   }
   renderColumn(board, col) {
     var _a, _b;
@@ -1598,7 +1750,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
           }
           col.name = name;
           col.isDone = isDone;
-          this.persist();
+          this.persist(t("action.editColumn", { name }));
           void this.plugin.refreshAllDoneView();
         })();
       }).open();
@@ -1686,7 +1838,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
               await this.plugin.updateSkillScores(labelIds, 1);
           }
           col.cards.push(card);
-          this.persist();
+          this.persist(t("action.addCard", { title }));
           void this.plugin.refreshAllDoneView();
         })();
       }).open();
@@ -1747,7 +1899,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     const added = col.cards.filter((c) => !rank.has(c.id));
     col.cards = ranked.concat(added);
     col.rankedIds = ranked.map((c) => c.id);
-    this.persist();
+    this.persist(t("action.reorder", { name: col.name }));
     new import_obsidian4.Notice(col.cards.map((c) => c.id).join() === before ? t("notice.orderConfirmed", { name: col.name }) : t("notice.reordered", { name: col.name }));
   }
   async deleteColumn(col) {
@@ -1759,7 +1911,9 @@ var KanbanView = class extends import_obsidian4.TextFileView {
       }
     }
     this.boardData.columns = this.boardData.columns.filter((c) => c.id !== col.id);
-    this.persist();
+    const action = t("action.deleteColumn", { name: col.name });
+    this.persist(action);
+    new import_obsidian4.Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
     void this.plugin.refreshAllDoneView();
   }
   renderCard(container, card, col, cardIdx, visibleCards) {
@@ -1870,7 +2024,7 @@ var KanbanView = class extends import_obsidian4.TextFileView {
             delete card.dueDate;
           if (col.isDone && labelIds.length)
             await this.plugin.updateSkillScores(labelIds, 1);
-          this.persist();
+          this.persist(t("action.editCard", { title }));
           void this.plugin.refreshAllDoneView();
         })();
       }).open();
@@ -1884,7 +2038,9 @@ var KanbanView = class extends import_obsidian4.TextFileView {
         if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
           await this.plugin.updateSkillScores(card.labelIds, -1);
         col.cards = col.cards.filter((c) => c.id !== card.id);
-        this.persist();
+        const action = t("action.deleteCard", { title: card.title });
+        this.persist(action);
+        new import_obsidian4.Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
         void this.plugin.refreshAllDoneView();
       })();
     });
@@ -2809,6 +2965,30 @@ var KanbanTodoPlugin = class extends import_obsidian4.Plugin {
     this.addCommand({ id: "open-skill-chart", name: t("cmd.openSkill"), callback: () => void this.openView(SKILL_CHART_VIEW_TYPE) });
     this.addCommand({ id: "open-all-done", name: t("cmd.openAllDone"), callback: () => void this.openView(ALL_DONE_VIEW_TYPE) });
     this.addCommand({ id: "open-eisenhower-matrix", name: t("cmd.openEisenhower"), callback: () => void this.openView(EISENHOWER_VIEW_TYPE) });
+    this.addCommand({
+      id: "undo-board-change",
+      name: t("cmd.undo"),
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(KanbanView);
+        if (!view || !view.canUndo())
+          return false;
+        if (!checking)
+          void view.undo();
+        return true;
+      }
+    });
+    this.addCommand({
+      id: "redo-board-change",
+      name: t("cmd.redo"),
+      checkCallback: (checking) => {
+        const view = this.app.workspace.getActiveViewOfType(KanbanView);
+        if (!view || !view.canRedo())
+          return false;
+        if (!checking)
+          void view.redo();
+        return true;
+      }
+    });
     this.addSettingTab(new KanbanSettingTab(this.app, this));
     let day = localDateKey();
     this.registerInterval(window.setInterval(() => {
@@ -2855,6 +3035,18 @@ var KanbanTodoPlugin = class extends import_obsidian4.Plugin {
     var _a;
     for (const id of labelIds) {
       this.settings.skillData.scores[id] = Math.max(0, ((_a = this.settings.skillData.scores[id]) != null ? _a : 0) + delta);
+    }
+    await this.saveSettings();
+    this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {
+      if (l.view instanceof KanbanSkillChartView)
+        l.view.render();
+    });
+  }
+  /** Add per-label point changes to the skill chart (used by undo/redo). */
+  async applySkillDelta(delta) {
+    var _a;
+    for (const id of Object.keys(delta)) {
+      this.settings.skillData.scores[id] = Math.max(0, ((_a = this.settings.skillData.scores[id]) != null ? _a : 0) + delta[id]);
     }
     await this.saveSettings();
     this.app.workspace.getLeavesOfType(SKILL_CHART_VIEW_TYPE).forEach((l) => {

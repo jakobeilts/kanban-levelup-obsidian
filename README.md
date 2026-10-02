@@ -91,6 +91,7 @@ What to keep in mind:
 **1.2.0**
 
 - **📅 Deadlines** — light yellow the day before, light red on the day and after; optional setting to show due cards first ([details](#deadlines))
+- **Undo / redo** with `Cmd/Ctrl + Z` for everything on a board — including deleted cards and whole columns ([details](#undo-and-redo))
 - **Position numbers** on cards in open columns
 - Dragging a card no longer resets the scroll position; the moved card stays in view and is briefly highlighted
 - Fix: dragging a card **down** within the same column dropped it one slot too low
@@ -151,6 +152,16 @@ Obsidian 1.8.7 or newer (since plugin version 1.1.2). Works on desktop and mobil
 - **Move a card**: Drag and drop, or use the ◀ ▶ arrow buttons. The board keeps its scroll position and briefly highlights the moved card, so you never lose sight of it
 - Cards support a **title**, optional **description**, one or more **labels**, an optional **Eisenhower category** and an optional **deadline**
 - **Position number**: every card in an open column shows its position (1 = top = most important). Done columns show none
+
+### Undo and redo
+Every change on a board can be taken back: deleted cards and columns, moves, edits, a duel result, even changes made from the Eisenhower matrix.
+
+| Shortcut | Action |
+|---|---|
+| `Cmd + Z` (macOS) / `Ctrl + Z` (Windows, Linux) | Undo the last change |
+| `Cmd + Shift + Z` / `Ctrl + Shift + Z` or `Ctrl + Y` | Redo |
+
+On macOS `Ctrl + Z` works as well. The board must be the active tab. Deleting a card or column shows a short notice with the shortcut, and Skill Chart points are restored together with the cards. The history keeps the last 50 changes per open board and starts fresh when the board is reopened or the file changes on disk (for example through sync). Both actions are also available in the command palette (*Undo last board change*, *Redo board change*), so you can assign your own hotkeys under Settings → Hotkeys.
 
 ### Deadlines
 Give a card a deadline in the card dialog (date picker; the × clears it). The card then shows a small calendar chip and changes colour as the day approaches:
