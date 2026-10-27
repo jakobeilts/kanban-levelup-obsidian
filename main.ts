@@ -1,6 +1,7 @@
 import {
   App,
   ItemView,
+  Menu,
   Modal,
   Notice,
   Platform,
@@ -83,7 +84,12 @@ export interface KanbanColumn {
   id: string;
   name: string;
   cards: KanbanCard[];
+  /** Accent strip and count badge colour (set when the column is created). */
   color?: string;
+  /** Fill colour of the column header, "#rrggbb". Unset = theme default. */
+  headerColor?: string;
+  /** Tint of the column body, "#rrggbb". Unset = theme default. */
+  bgColor?: string;
   isDone?: boolean;
   /**
    * Card ids in the order the last priority duel produced. Cards not listed here
@@ -101,6 +107,19 @@ export interface KanbanBoard {
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+}
+
+/** Preset colours offered for column headers and bodies. */
+export const COLUMN_PALETTE: string[] = [
+  "#ef4444", "#f97316", "#f59e0b", "#84cc16", "#10b981", "#14b8a6",
+  "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#6b7280",
+];
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** The colour if it is a plain "#rrggbb" value (the board file may be hand-edited), else undefined. */
+export function validHex(c: string | undefined): string | undefined {
+  return c && HEX_COLOR.test(c) ? c.toLowerCase() : undefined;
 }
 
 function toDateInputVal(d: Date): string {
@@ -411,8 +430,11 @@ export class KanbanView extends TextFileView {
     const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: t("board.addColumn") } });
     setIcon(addColBtn, "plus");
     addColBtn.addEventListener("click", () => {
-      new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone }) => {
-        this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
+      new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone, headerColor, bgColor }) => {
+        const col: KanbanColumn = { id: generateId(), name, cards: [], color: headerColor ?? "#8b5cf6", isDone };
+        if (headerColor) col.headerColor = headerColor;
+        if (bgColor) col.bgColor = bgColor;
+        this.boardData.columns.push(col);
         this.persist(t("action.addColumn", { name }));
       }).open();
     });
@@ -460,7 +482,23 @@ export class KanbanView extends TextFileView {
     const visibleCards = !col.isDone && this.plugin.settings.dueRedOnTop ? redFirst(shownCards) : shownCards;
 
     const colEl = board.createDiv({ cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
+    const bgColor = validHex(col.bgColor);
+    if (bgColor) {
+      colEl.addClass("kb-col-tinted");
+      colEl.style.setProperty("--kb-col-bg", bgColor);
+    }
     const hdr = colEl.createDiv({ cls: "kanban-col-hdr", attr: { draggable: "true" } });
+    const headerColor = validHex(col.headerColor);
+    if (headerColor) {
+      hdr.addClass("kb-hdr-colored");
+      hdr.style.setProperty("--kb-hdr-bg", headerColor);
+    }
+    hdr.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const menu = new Menu();
+      menu.addItem((i) => i.setTitle(t("colModal.title")).setIcon("palette").onClick(() => this.openColumnSettings(col)));
+      menu.showAtMouseEvent(e);
+    });
 
     // Column drag handle events
     hdr.addEventListener("dragstart", (e) => {
@@ -479,41 +517,18 @@ export class KanbanView extends TextFileView {
     setIcon(dragHandle, "grip-vertical");
 
     const accent = hdr.createSpan({ cls: "kanban-col-accent" });
-    accent.style.background = col.color ?? "#6366f1";
+    accent.style.background = headerColor ?? col.color ?? "#6366f1";
 
     const titleEl = hdr.createSpan({ cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
       hdr.createSpan({ cls: "kanban-done-tag", text: t("col.doneTag"), attr: { title: t("col.doneTagTitle") } });
     }
 
-    titleEl.addEventListener("dblclick", () => {
-      new ColumnModal(this.app, { name: col.name, isDone: col.isDone ?? false }, ({ name, isDone }) => {
-        const wasInDone = col.isDone;
-        const becomingDone = isDone && !wasInDone;
-        const leavingDone = !isDone && wasInDone;
-        void (async () => {
-          if (leavingDone) {
-            for (const card of col.cards) {
-              if (card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
-              delete card.completedAt;
-            }
-          }
-          if (becomingDone) {
-            for (const card of col.cards) {
-              if (!card.completedAt) card.completedAt = Date.now();
-              if (card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, +1);
-            }
-          }
-          col.name = name;
-          col.isDone = isDone;
-          this.persist(t("action.editColumn", { name }));
-          void this.plugin.refreshAllDoneView();
-        })();
-      }).open();
-    });
+    titleEl.addEventListener("dblclick", () => this.openColumnSettings(col));
 
     const badge = hdr.createSpan({ cls: "kanban-col-badge", text: String(col.cards.length) });
-    badge.style.background = col.color ?? "#6366f1";
+    // A coloured header styles its badge in CSS (tinted, see styles.css).
+    if (!headerColor) badge.style.background = col.color ?? "#6366f1";
 
     if (!col.isDone) {
       const duelBtn = hdr.createEl("button", {
@@ -601,6 +616,34 @@ export class KanbanView extends TextFileView {
         })();
       }).open();
     });
+  }
+
+  private openColumnSettings(col: KanbanColumn): void {
+    new ColumnModal(this.app, { name: col.name, isDone: col.isDone ?? false, headerColor: validHex(col.headerColor), bgColor: validHex(col.bgColor) }, ({ name, isDone, headerColor, bgColor }) => {
+      const wasInDone = col.isDone;
+      const becomingDone = isDone && !wasInDone;
+      const leavingDone = !isDone && wasInDone;
+      void (async () => {
+        if (leavingDone) {
+          for (const card of col.cards) {
+            if (card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
+            delete card.completedAt;
+          }
+        }
+        if (becomingDone) {
+          for (const card of col.cards) {
+            if (!card.completedAt) card.completedAt = Date.now();
+            if (card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, +1);
+          }
+        }
+        col.name = name;
+        col.isDone = isDone;
+        if (headerColor) col.headerColor = headerColor; else delete col.headerColor;
+        if (bgColor) col.bgColor = bgColor; else delete col.bgColor;
+        this.persist(t("action.editColumn", { name }));
+        void this.plugin.refreshAllDoneView();
+      })();
+    }).open();
   }
 
   /** Key for an unfinished duel session: survives closing the modal, not a restart. */
@@ -713,6 +756,23 @@ export class KanbanView extends TextFileView {
       container.closest(".kanban-col")?.removeClass("drag-over");
     });
 
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = col.cards.findIndex((c) => c.id === card.id);
+      const menu = new Menu();
+      menu.addItem((i) => i.setTitle(t("card.moveTop")).setIcon("arrow-up-to-line")
+        .setDisabled(idx <= 0).onClick(() => this.moveCardToEdge(card, col, "top")));
+      menu.addItem((i) => i.setTitle(t("card.moveBottom")).setIcon("arrow-down-to-line")
+        .setDisabled(idx === -1 || idx === col.cards.length - 1).onClick(() => this.moveCardToEdge(card, col, "bottom")));
+      menu.addSeparator();
+      menu.addItem((i) => i.setTitle(t("card.duplicate")).setIcon("copy").onClick(() => void this.duplicateCard(card, col)));
+      menu.addItem((i) => i.setTitle(t("card.edit")).setIcon("pencil").onClick(() => this.editCard(card, col)));
+      menu.addSeparator();
+      menu.addItem((i) => i.setTitle(t("card.delete")).setIcon("trash-2").setWarning(true).onClick(() => void this.deleteCard(card, col)));
+      menu.showAtMouseEvent(e);
+    });
+
     const body = el.createDiv({ cls: "kanban-card-body" });
     const titleRow = body.createDiv({ cls: "kanban-card-titlerow" });
     if (!col.isDone) {
@@ -753,34 +813,62 @@ export class KanbanView extends TextFileView {
 
     const editBtn = actions.createEl("button", { cls: "kb-icon-btn", attr: { title: t("card.edit") } });
     setIcon(editBtn, "pencil");
-    editBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
-        void (async () => {
-          if (col.isDone && card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
-          card.title = title; card.description = desc; card.labelIds = labelIds;
-          if (quadrant) card.quadrant = quadrant; else delete card.quadrant;
-          if (dueDate) card.dueDate = dueDate; else delete card.dueDate;
-          if (col.isDone && labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
-          this.persist(t("action.editCard", { title }));
-          void this.plugin.refreshAllDoneView();
-        })();
-      }).open();
-    });
+    editBtn.addEventListener("click", (e) => { e.stopPropagation(); this.editCard(card, col); });
 
     const delBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("card.delete") } });
     setIcon(delBtn, "x");
-    delBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
+    delBtn.addEventListener("click", (e) => { e.stopPropagation(); void this.deleteCard(card, col); });
+  }
+
+  private editCard(card: KanbanCard, col: KanbanColumn): void {
+    new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
       void (async () => {
         if (col.isDone && card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
-        col.cards = col.cards.filter((c) => c.id !== card.id);
-        const action = t("action.deleteCard", { title: card.title });
-        this.persist(action);
-        new Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
+        card.title = title; card.description = desc; card.labelIds = labelIds;
+        if (quadrant) card.quadrant = quadrant; else delete card.quadrant;
+        if (dueDate) card.dueDate = dueDate; else delete card.dueDate;
+        if (col.isDone && labelIds.length) await this.plugin.updateSkillScores(labelIds, +1);
+        this.persist(t("action.editCard", { title }));
         void this.plugin.refreshAllDoneView();
       })();
-    });
+    }).open();
+  }
+
+  private async deleteCard(card: KanbanCard, col: KanbanColumn): Promise<void> {
+    if (col.isDone && card.labelIds?.length) await this.plugin.updateSkillScores(card.labelIds, -1);
+    col.cards = col.cards.filter((c) => c.id !== card.id);
+    const action = t("action.deleteCard", { title: card.title });
+    this.persist(action);
+    new Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
+    void this.plugin.refreshAllDoneView();
+  }
+
+  /**
+   * Reorder inside one column. Unlike moveCard this leaves completedAt and the skill
+   * chart alone: the card stays in the same column, so nothing was completed or reopened.
+   */
+  private moveCardToEdge(card: KanbanCard, col: KanbanColumn, edge: "top" | "bottom"): void {
+    const idx = col.cards.findIndex((c) => c.id === card.id);
+    if (idx === -1) return;
+    col.cards.splice(idx, 1);
+    if (edge === "top") col.cards.unshift(card); else col.cards.push(card);
+    this.focusCardId = card.id;
+    this.persist(t(edge === "top" ? "action.moveCardTop" : "action.moveCardBottom", { title: card.title }));
+  }
+
+  /** Copy a card (new id, created now) and place it right below the original. */
+  private async duplicateCard(card: KanbanCard, col: KanbanColumn): Promise<void> {
+    const idx = col.cards.findIndex((c) => c.id === card.id);
+    if (idx === -1) return;
+    const copy: KanbanCard = { ...card, id: generateId(), createdAt: Date.now() };
+    if (card.labelIds) copy.labelIds = card.labelIds.slice();
+    // A copy in the done column counts as one more completed card, same as adding one there.
+    if (col.isDone) copy.completedAt = Date.now();
+    col.cards.splice(idx + 1, 0, copy);
+    this.focusCardId = copy.id;
+    this.persist(t("action.duplicateCard", { title: card.title }));
+    if (col.isDone && copy.labelIds?.length) await this.plugin.updateSkillScores(copy.labelIds, +1);
+    void this.plugin.refreshAllDoneView();
   }
 }
 
@@ -1541,7 +1629,55 @@ class ConfirmModal extends Modal {
   onClose() { this.contentEl.empty(); }
 }
 
-interface ColumnOptions { name: string; isDone: boolean; }
+interface ColumnOptions { name: string; isDone: boolean; headerColor?: string; bgColor?: string; }
+
+/** A row of colour swatches: "none", the presets and a custom picker. */
+function renderColorPicker(parent: HTMLElement, initial: string | undefined, onChange: (c: string | undefined) => void): void {
+  let current = validHex(initial);
+  const row = parent.createDiv({ cls: "kb-color-row" });
+  const swatches = new Map<string, HTMLElement>();
+
+  // Plain elements with a button role, not <button>: Obsidian's button styles
+  // (background, radius, height, shadow) would otherwise override the swatch look.
+  const swatch = (label: string, onPick: () => void, extraCls = ""): HTMLElement => {
+    const sw = row.createDiv({ cls: "kb-color-swatch" + extraCls, attr: { role: "button", tabindex: "0", title: label, "aria-label": label } });
+    sw.addEventListener("click", (e) => { e.preventDefault(); onPick(); });
+    sw.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); }
+    });
+    return sw;
+  };
+
+  const none = swatch(t("colModal.colorNone"), () => set(undefined), " kb-color-none");
+
+  for (const c of COLUMN_PALETTE) {
+    const sw = swatch(c, () => set(c));
+    sw.style.setProperty("--sw", c);
+    swatches.set(c, sw);
+  }
+
+  const customWrap = row.createEl("label", { cls: "kb-color-swatch kb-color-custom", attr: { title: t("colModal.colorCustom") } });
+  const customIcon = customWrap.createSpan({ cls: "kb-color-custom-icon" });
+  setIcon(customIcon, "pipette");
+  const customInput = customWrap.createEl("input", { attr: { type: "color", "aria-label": t("colModal.colorCustom") } });
+  customInput.addEventListener("input", () => set(customInput.value));
+
+  function set(c: string | undefined): void {
+    current = validHex(c);
+    sync();
+    onChange(current);
+  }
+  function sync(): void {
+    none.toggleClass("is-selected", !current);
+    swatches.forEach((sw, c) => sw.toggleClass("is-selected", c === current));
+    const isCustom = !!current && !swatches.has(current);
+    customWrap.toggleClass("is-selected", isCustom);
+    if (isCustom && current) customWrap.style.setProperty("--sw", current);
+    else customWrap.style.removeProperty("--sw");
+    customInput.value = current ?? "#8b5cf6";
+  }
+  sync();
+}
 
 class ColumnModal extends Modal {
   constructor(app: App, private opts: ColumnOptions, private cb: (v: ColumnOptions) => void) { super(app); }
@@ -1565,13 +1701,20 @@ class ColumnModal extends Modal {
     toggleInput.checked = this.opts.isDone;
     toggleWrap.createSpan({ cls: "kanban-skill-toggle-track" });
 
+    let headerColor = this.opts.headerColor;
+    let bgColor = this.opts.bgColor;
+    el.createEl("label", { cls: "kanban-modal-label", text: t("colModal.headerColor") });
+    renderColorPicker(el, headerColor, (c) => { headerColor = c; });
+    el.createEl("label", { cls: "kanban-modal-label", text: t("colModal.bgColor") });
+    renderColorPicker(el, bgColor, (c) => { bgColor = c; });
+
     const btns = el.createDiv({ cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
     const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: t("common.ok") });
     ok.addEventListener("click", () => {
       const name = nameInput.value.trim();
       if (!name) return;
-      this.cb({ name, isDone: toggleInput.checked });
+      this.cb({ name, isDone: toggleInput.checked, headerColor, bgColor });
       this.close();
     });
     nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ok.click(); if (e.key === "Escape") this.close(); });

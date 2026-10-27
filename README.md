@@ -88,6 +88,12 @@ What to keep in mind:
 
 ### What's new
 
+**1.3.0**
+
+- **🎨 Column colours** — pick a colour for the column header and/or a tint for the whole column in the column settings ([details](#columns))
+- **Right-click menu on cards** — *Move to top*, *Move to bottom*, *Duplicate*, *Edit*, *Delete* ([details](#cards))
+- **Duplicate cards** — the copy lands right below the original
+
 **1.2.0**
 
 - **📅 Deadlines** — light yellow the day before, light red on the day and after; optional setting to show due cards first ([details](#deadlines))
@@ -139,7 +145,8 @@ Obsidian 1.8.7 or newer (since plugin version 1.1.2). Works on desktop and mobil
 
 ### Columns
 - **Add a column**: Click the `+` icon at the right edge of the board
-- **Rename a column**: Double-click the column title to open the column settings
+- **Rename a column**: Double-click the column title (or right-click the header → *Column settings*)
+- **Colours**: In the column settings, choose a *header colour* (solid fill; the text switches between white and dark automatically for contrast) and a *column colour* (a light tint behind the cards). Twelve presets, a custom colour picker, or *No colour* for the theme default. Both are optional and independent
 - **Delete a column**: Click the trash icon in the column header
 - **Mark as Done**: In the column settings modal, toggle "Mark as Done column"
 
@@ -149,6 +156,8 @@ Obsidian 1.8.7 or newer (since plugin version 1.1.2). Works on desktop and mobil
 - **Add a card**: Click `+ Add card` at the bottom of any column
 - **Edit a card**: Hover over a card → click the pencil icon
 - **Delete a card**: Hover over a card → click the × icon
+- **Right-click a card** for *Move to top*, *Move to bottom*, *Duplicate*, *Edit* and *Delete*. Moving to the top or bottom only reorders the column: a card in a Done column keeps its completion date and Skill Chart points
+- **Duplicate a card**: The copy (title, description, labels, Eisenhower category, deadline) is placed right below the original. A copy made in a Done column counts as a newly completed card
 - **Move a card**: Drag and drop, or use the ◀ ▶ arrow buttons. The board keeps its scroll position and briefly highlights the moved card, so you never lose sight of it
 - Cards support a **title**, optional **description**, one or more **labels**, an optional **Eisenhower category** and an optional **deadline**
 - **Position number**: every card in an open column shows its position (1 = top = most important). Done columns show none

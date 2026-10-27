@@ -26,6 +26,7 @@ var main_exports = {};
 __export(main_exports, {
   ALL_DONE_VIEW_TYPE: () => ALL_DONE_VIEW_TYPE,
   AllDoneTodosView: () => AllDoneTodosView,
+  COLUMN_PALETTE: () => COLUMN_PALETTE,
   EISENHOWER_QUADRANTS: () => EISENHOWER_QUADRANTS,
   EISENHOWER_VIEW_TYPE: () => EISENHOWER_VIEW_TYPE,
   EisenhowerMatrixView: () => EisenhowerMatrixView,
@@ -34,7 +35,8 @@ __export(main_exports, {
   KanbanView: () => KanbanView,
   SKILL_CHART_VIEW_TYPE: () => SKILL_CHART_VIEW_TYPE,
   default: () => KanbanTodoPlugin,
-  quadrantDef: () => quadrantDef
+  quadrantDef: () => quadrantDef,
+  validHex: () => validHex
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian4 = require("obsidian");
@@ -291,6 +293,9 @@ var en = {
   "card.delete": "Delete",
   "card.ehTitle": "Eisenhower: {hint}",
   "card.position": "Position {n} in this column",
+  "card.moveTop": "Move to top",
+  "card.moveBottom": "Move to bottom",
+  "card.duplicate": "Duplicate",
   "due.on": "Due {date}",
   "due.today": "Due today",
   "due.tomorrow": "Due tomorrow",
@@ -309,6 +314,9 @@ var en = {
   "action.editCard": 'Card "{title}" edited',
   "action.deleteCard": 'Card "{title}" deleted',
   "action.moveCard": 'Card "{title}" moved',
+  "action.moveCardTop": 'Card "{title}" moved to top',
+  "action.moveCardBottom": 'Card "{title}" moved to bottom',
+  "action.duplicateCard": 'Card "{title}" duplicated',
   "action.addColumn": 'Column "{name}" added',
   "action.editColumn": 'Column "{name}" changed',
   "action.deleteColumn": 'Column "{name}" deleted',
@@ -369,6 +377,10 @@ var en = {
   "colModal.name": "Name",
   "colModal.markDone": "Mark as done column",
   "colModal.markDoneHint": "Cards here count in skill chart and all done todos",
+  "colModal.headerColor": "Header colour",
+  "colModal.bgColor": "Column colour",
+  "colModal.colorNone": "No colour",
+  "colModal.colorCustom": "Custom colour",
   "cardModal.newTitle": "New card",
   "cardModal.editTitle": "Edit card",
   "cardModal.title": "Title",
@@ -554,6 +566,9 @@ var de = {
   "card.delete": "L\xF6schen",
   "card.ehTitle": "Eisenhower: {hint}",
   "card.position": "Platz {n} in dieser Spalte",
+  "card.moveTop": "Nach ganz oben",
+  "card.moveBottom": "Nach ganz unten",
+  "card.duplicate": "Duplizieren",
   "due.on": "F\xE4llig {date}",
   "due.today": "Heute f\xE4llig",
   "due.tomorrow": "Morgen f\xE4llig",
@@ -572,6 +587,9 @@ var de = {
   "action.editCard": "Karte \u201E{title}\u201C bearbeitet",
   "action.deleteCard": "Karte \u201E{title}\u201C gel\xF6scht",
   "action.moveCard": "Karte \u201E{title}\u201C verschoben",
+  "action.moveCardTop": "Karte \u201E{title}\u201C nach ganz oben verschoben",
+  "action.moveCardBottom": "Karte \u201E{title}\u201C nach ganz unten verschoben",
+  "action.duplicateCard": "Karte \u201E{title}\u201C dupliziert",
   "action.addColumn": "Spalte \u201E{name}\u201C hinzugef\xFCgt",
   "action.editColumn": "Spalte \u201E{name}\u201C ge\xE4ndert",
   "action.deleteColumn": "Spalte \u201E{name}\u201C gel\xF6scht",
@@ -632,6 +650,10 @@ var de = {
   "colModal.name": "Name",
   "colModal.markDone": "Als Erledigt-Spalte markieren",
   "colModal.markDoneHint": "Karten hier z\xE4hlen im Skill-Diagramm und bei den erledigten Aufgaben",
+  "colModal.headerColor": "Farbe der \xDCberschrift",
+  "colModal.bgColor": "Farbe der Spalte",
+  "colModal.colorNone": "Keine Farbe",
+  "colModal.colorCustom": "Eigene Farbe",
   "cardModal.newTitle": "Neue Karte",
   "cardModal.editTitle": "Karte bearbeiten",
   "cardModal.title": "Titel",
@@ -1355,6 +1377,24 @@ function quadrantDef(id) {
 function generateId() {
   return Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
 }
+var COLUMN_PALETTE = [
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#84cc16",
+  "#10b981",
+  "#14b8a6",
+  "#06b6d4",
+  "#3b82f6",
+  "#6366f1",
+  "#8b5cf6",
+  "#ec4899",
+  "#6b7280"
+];
+var HEX_COLOR = /^#[0-9a-f]{6}$/i;
+function validHex(c) {
+  return c && HEX_COLOR.test(c) ? c.toLowerCase() : void 0;
+}
 function toDateInputVal(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -1657,8 +1697,13 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     const addColBtn = board.createEl("button", { cls: "kanban-add-col-btn", attr: { title: t("board.addColumn") } });
     (0, import_obsidian4.setIcon)(addColBtn, "plus");
     addColBtn.addEventListener("click", () => {
-      new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone }) => {
-        this.boardData.columns.push({ id: generateId(), name, cards: [], color: "#8b5cf6", isDone });
+      new ColumnModal(this.app, { name: t("board.newColumn"), isDone: false }, ({ name, isDone, headerColor, bgColor }) => {
+        const col = { id: generateId(), name, cards: [], color: headerColor != null ? headerColor : "#8b5cf6", isDone };
+        if (headerColor)
+          col.headerColor = headerColor;
+        if (bgColor)
+          col.bgColor = bgColor;
+        this.boardData.columns.push(col);
         this.persist(t("action.addColumn", { name }));
       }).open();
     });
@@ -1704,7 +1749,23 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     const hiddenCount = col.isDone ? col.cards.length - shownCards.length : 0;
     const visibleCards = !col.isDone && this.plugin.settings.dueRedOnTop ? redFirst(shownCards) : shownCards;
     const colEl = board.createDiv({ cls: "kanban-col" + (col.isDone ? " kanban-col-done" : "") });
+    const bgColor = validHex(col.bgColor);
+    if (bgColor) {
+      colEl.addClass("kb-col-tinted");
+      colEl.style.setProperty("--kb-col-bg", bgColor);
+    }
     const hdr = colEl.createDiv({ cls: "kanban-col-hdr", attr: { draggable: "true" } });
+    const headerColor = validHex(col.headerColor);
+    if (headerColor) {
+      hdr.addClass("kb-hdr-colored");
+      hdr.style.setProperty("--kb-hdr-bg", headerColor);
+    }
+    hdr.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      const menu = new import_obsidian4.Menu();
+      menu.addItem((i) => i.setTitle(t("colModal.title")).setIcon("palette").onClick(() => this.openColumnSettings(col)));
+      menu.showAtMouseEvent(e);
+    });
     hdr.addEventListener("dragstart", (e) => {
       var _a2;
       this.draggedCol = col;
@@ -1720,43 +1781,15 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     const dragHandle = hdr.createSpan({ cls: "kanban-col-drag-handle", attr: { title: t("col.dragToReorder") } });
     (0, import_obsidian4.setIcon)(dragHandle, "grip-vertical");
     const accent = hdr.createSpan({ cls: "kanban-col-accent" });
-    accent.style.background = (_a = col.color) != null ? _a : "#6366f1";
+    accent.style.background = (_a = headerColor != null ? headerColor : col.color) != null ? _a : "#6366f1";
     const titleEl = hdr.createSpan({ cls: "kanban-col-title", text: col.name });
     if (col.isDone) {
       hdr.createSpan({ cls: "kanban-done-tag", text: t("col.doneTag"), attr: { title: t("col.doneTagTitle") } });
     }
-    titleEl.addEventListener("dblclick", () => {
-      var _a2;
-      new ColumnModal(this.app, { name: col.name, isDone: (_a2 = col.isDone) != null ? _a2 : false }, ({ name, isDone }) => {
-        const wasInDone = col.isDone;
-        const becomingDone = isDone && !wasInDone;
-        const leavingDone = !isDone && wasInDone;
-        void (async () => {
-          var _a3, _b2;
-          if (leavingDone) {
-            for (const card of col.cards) {
-              if ((_a3 = card.labelIds) == null ? void 0 : _a3.length)
-                await this.plugin.updateSkillScores(card.labelIds, -1);
-              delete card.completedAt;
-            }
-          }
-          if (becomingDone) {
-            for (const card of col.cards) {
-              if (!card.completedAt)
-                card.completedAt = Date.now();
-              if ((_b2 = card.labelIds) == null ? void 0 : _b2.length)
-                await this.plugin.updateSkillScores(card.labelIds, 1);
-            }
-          }
-          col.name = name;
-          col.isDone = isDone;
-          this.persist(t("action.editColumn", { name }));
-          void this.plugin.refreshAllDoneView();
-        })();
-      }).open();
-    });
+    titleEl.addEventListener("dblclick", () => this.openColumnSettings(col));
     const badge = hdr.createSpan({ cls: "kanban-col-badge", text: String(col.cards.length) });
-    badge.style.background = (_b = col.color) != null ? _b : "#6366f1";
+    if (!headerColor)
+      badge.style.background = (_b = col.color) != null ? _b : "#6366f1";
     if (!col.isDone) {
       const duelBtn = hdr.createEl("button", {
         cls: "kb-icon-btn kb-duel-open",
@@ -1843,6 +1876,44 @@ var KanbanView = class extends import_obsidian4.TextFileView {
         })();
       }).open();
     });
+  }
+  openColumnSettings(col) {
+    var _a;
+    new ColumnModal(this.app, { name: col.name, isDone: (_a = col.isDone) != null ? _a : false, headerColor: validHex(col.headerColor), bgColor: validHex(col.bgColor) }, ({ name, isDone, headerColor, bgColor }) => {
+      const wasInDone = col.isDone;
+      const becomingDone = isDone && !wasInDone;
+      const leavingDone = !isDone && wasInDone;
+      void (async () => {
+        var _a2, _b;
+        if (leavingDone) {
+          for (const card of col.cards) {
+            if ((_a2 = card.labelIds) == null ? void 0 : _a2.length)
+              await this.plugin.updateSkillScores(card.labelIds, -1);
+            delete card.completedAt;
+          }
+        }
+        if (becomingDone) {
+          for (const card of col.cards) {
+            if (!card.completedAt)
+              card.completedAt = Date.now();
+            if ((_b = card.labelIds) == null ? void 0 : _b.length)
+              await this.plugin.updateSkillScores(card.labelIds, 1);
+          }
+        }
+        col.name = name;
+        col.isDone = isDone;
+        if (headerColor)
+          col.headerColor = headerColor;
+        else
+          delete col.headerColor;
+        if (bgColor)
+          col.bgColor = bgColor;
+        else
+          delete col.bgColor;
+        this.persist(t("action.editColumn", { name }));
+        void this.plugin.refreshAllDoneView();
+      })();
+    }).open();
   }
   /** Key for an unfinished duel session: survives closing the modal, not a restart. */
   duelKey(col) {
@@ -1958,6 +2029,20 @@ var KanbanView = class extends import_obsidian4.TextFileView {
       this.cardDropTarget = { col, index: targetIdx };
       (_a = container.closest(".kanban-col")) == null ? void 0 : _a.removeClass("drag-over");
     });
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = col.cards.findIndex((c) => c.id === card.id);
+      const menu = new import_obsidian4.Menu();
+      menu.addItem((i) => i.setTitle(t("card.moveTop")).setIcon("arrow-up-to-line").setDisabled(idx <= 0).onClick(() => this.moveCardToEdge(card, col, "top")));
+      menu.addItem((i) => i.setTitle(t("card.moveBottom")).setIcon("arrow-down-to-line").setDisabled(idx === -1 || idx === col.cards.length - 1).onClick(() => this.moveCardToEdge(card, col, "bottom")));
+      menu.addSeparator();
+      menu.addItem((i) => i.setTitle(t("card.duplicate")).setIcon("copy").onClick(() => void this.duplicateCard(card, col)));
+      menu.addItem((i) => i.setTitle(t("card.edit")).setIcon("pencil").onClick(() => this.editCard(card, col)));
+      menu.addSeparator();
+      menu.addItem((i) => i.setTitle(t("card.delete")).setIcon("trash-2").setWarning(true).onClick(() => void this.deleteCard(card, col)));
+      menu.showAtMouseEvent(e);
+    });
     const body = el.createDiv({ cls: "kanban-card-body" });
     const titleRow = body.createDiv({ cls: "kanban-card-titlerow" });
     if (!col.isDone) {
@@ -2006,44 +2091,82 @@ var KanbanView = class extends import_obsidian4.TextFileView {
     (0, import_obsidian4.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
-        void (async () => {
-          var _a;
-          if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
-            await this.plugin.updateSkillScores(card.labelIds, -1);
-          card.title = title;
-          card.description = desc;
-          card.labelIds = labelIds;
-          if (quadrant)
-            card.quadrant = quadrant;
-          else
-            delete card.quadrant;
-          if (dueDate)
-            card.dueDate = dueDate;
-          else
-            delete card.dueDate;
-          if (col.isDone && labelIds.length)
-            await this.plugin.updateSkillScores(labelIds, 1);
-          this.persist(t("action.editCard", { title }));
-          void this.plugin.refreshAllDoneView();
-        })();
-      }).open();
+      this.editCard(card, col);
     });
     const delBtn = actions.createEl("button", { cls: "kb-icon-btn kb-icon-danger", attr: { title: t("card.delete") } });
     (0, import_obsidian4.setIcon)(delBtn, "x");
     delBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      void this.deleteCard(card, col);
+    });
+  }
+  editCard(card, col) {
+    new CardModal(this.app, this.plugin.settings.labels, card, (title, desc, labelIds, quadrant, dueDate) => {
       void (async () => {
         var _a;
         if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
           await this.plugin.updateSkillScores(card.labelIds, -1);
-        col.cards = col.cards.filter((c) => c.id !== card.id);
-        const action = t("action.deleteCard", { title: card.title });
-        this.persist(action);
-        new import_obsidian4.Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
+        card.title = title;
+        card.description = desc;
+        card.labelIds = labelIds;
+        if (quadrant)
+          card.quadrant = quadrant;
+        else
+          delete card.quadrant;
+        if (dueDate)
+          card.dueDate = dueDate;
+        else
+          delete card.dueDate;
+        if (col.isDone && labelIds.length)
+          await this.plugin.updateSkillScores(labelIds, 1);
+        this.persist(t("action.editCard", { title }));
         void this.plugin.refreshAllDoneView();
       })();
-    });
+    }).open();
+  }
+  async deleteCard(card, col) {
+    var _a;
+    if (col.isDone && ((_a = card.labelIds) == null ? void 0 : _a.length))
+      await this.plugin.updateSkillScores(card.labelIds, -1);
+    col.cards = col.cards.filter((c) => c.id !== card.id);
+    const action = t("action.deleteCard", { title: card.title });
+    this.persist(action);
+    new import_obsidian4.Notice(t("history.deletedHint", { action, key: undoKeyHint() }));
+    void this.plugin.refreshAllDoneView();
+  }
+  /**
+   * Reorder inside one column. Unlike moveCard this leaves completedAt and the skill
+   * chart alone: the card stays in the same column, so nothing was completed or reopened.
+   */
+  moveCardToEdge(card, col, edge) {
+    const idx = col.cards.findIndex((c) => c.id === card.id);
+    if (idx === -1)
+      return;
+    col.cards.splice(idx, 1);
+    if (edge === "top")
+      col.cards.unshift(card);
+    else
+      col.cards.push(card);
+    this.focusCardId = card.id;
+    this.persist(t(edge === "top" ? "action.moveCardTop" : "action.moveCardBottom", { title: card.title }));
+  }
+  /** Copy a card (new id, created now) and place it right below the original. */
+  async duplicateCard(card, col) {
+    var _a;
+    const idx = col.cards.findIndex((c) => c.id === card.id);
+    if (idx === -1)
+      return;
+    const copy = { ...card, id: generateId(), createdAt: Date.now() };
+    if (card.labelIds)
+      copy.labelIds = card.labelIds.slice();
+    if (col.isDone)
+      copy.completedAt = Date.now();
+    col.cards.splice(idx + 1, 0, copy);
+    this.focusCardId = copy.id;
+    this.persist(t("action.duplicateCard", { title: card.title }));
+    if (col.isDone && ((_a = copy.labelIds) == null ? void 0 : _a.length))
+      await this.plugin.updateSkillScores(copy.labelIds, 1);
+    void this.plugin.refreshAllDoneView();
   }
 };
 var ALL_DONE_VIEW_TYPE = "kanban-all-done";
@@ -2794,6 +2917,53 @@ var ConfirmModal = class extends import_obsidian4.Modal {
     this.contentEl.empty();
   }
 };
+function renderColorPicker(parent, initial, onChange) {
+  let current2 = validHex(initial);
+  const row = parent.createDiv({ cls: "kb-color-row" });
+  const swatches = /* @__PURE__ */ new Map();
+  const swatch = (label, onPick, extraCls = "") => {
+    const sw = row.createDiv({ cls: "kb-color-swatch" + extraCls, attr: { role: "button", tabindex: "0", title: label, "aria-label": label } });
+    sw.addEventListener("click", (e) => {
+      e.preventDefault();
+      onPick();
+    });
+    sw.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onPick();
+      }
+    });
+    return sw;
+  };
+  const none = swatch(t("colModal.colorNone"), () => set(void 0), " kb-color-none");
+  for (const c of COLUMN_PALETTE) {
+    const sw = swatch(c, () => set(c));
+    sw.style.setProperty("--sw", c);
+    swatches.set(c, sw);
+  }
+  const customWrap = row.createEl("label", { cls: "kb-color-swatch kb-color-custom", attr: { title: t("colModal.colorCustom") } });
+  const customIcon = customWrap.createSpan({ cls: "kb-color-custom-icon" });
+  (0, import_obsidian4.setIcon)(customIcon, "pipette");
+  const customInput = customWrap.createEl("input", { attr: { type: "color", "aria-label": t("colModal.colorCustom") } });
+  customInput.addEventListener("input", () => set(customInput.value));
+  function set(c) {
+    current2 = validHex(c);
+    sync();
+    onChange(current2);
+  }
+  function sync() {
+    none.toggleClass("is-selected", !current2);
+    swatches.forEach((sw, c) => sw.toggleClass("is-selected", c === current2));
+    const isCustom = !!current2 && !swatches.has(current2);
+    customWrap.toggleClass("is-selected", isCustom);
+    if (isCustom && current2)
+      customWrap.style.setProperty("--sw", current2);
+    else
+      customWrap.style.removeProperty("--sw");
+    customInput.value = current2 != null ? current2 : "#8b5cf6";
+  }
+  sync();
+}
 var ColumnModal = class extends import_obsidian4.Modal {
   constructor(app, opts, cb) {
     super(app);
@@ -2816,6 +2986,16 @@ var ColumnModal = class extends import_obsidian4.Modal {
     const toggleInput = toggleWrap.createEl("input", { attr: { type: "checkbox" } });
     toggleInput.checked = this.opts.isDone;
     toggleWrap.createSpan({ cls: "kanban-skill-toggle-track" });
+    let headerColor = this.opts.headerColor;
+    let bgColor = this.opts.bgColor;
+    el.createEl("label", { cls: "kanban-modal-label", text: t("colModal.headerColor") });
+    renderColorPicker(el, headerColor, (c) => {
+      headerColor = c;
+    });
+    el.createEl("label", { cls: "kanban-modal-label", text: t("colModal.bgColor") });
+    renderColorPicker(el, bgColor, (c) => {
+      bgColor = c;
+    });
     const btns = el.createDiv({ cls: "kanban-modal-btns" });
     btns.createEl("button", { cls: "kb-btn kb-btn-ghost", text: t("common.cancel") }).addEventListener("click", () => this.close());
     const ok = btns.createEl("button", { cls: "kb-btn kb-btn-primary", text: t("common.ok") });
@@ -2823,7 +3003,7 @@ var ColumnModal = class extends import_obsidian4.Modal {
       const name = nameInput.value.trim();
       if (!name)
         return;
-      this.cb({ name, isDone: toggleInput.checked });
+      this.cb({ name, isDone: toggleInput.checked, headerColor, bgColor });
       this.close();
     });
     nameInput.addEventListener("keydown", (e) => {

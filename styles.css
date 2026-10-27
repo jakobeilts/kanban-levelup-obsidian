@@ -1266,3 +1266,108 @@
 @media (prefers-reduced-motion: reduce) {
   .kanban-card.is-just-moved { animation: none; outline: 2px solid var(--interactive-accent); }
 }
+
+/* ── Column colours ─────────────────────────────────────────────── */
+
+/*
+ * Everything is derived from the one chosen colour by mixing it with theme variables,
+ * so the same rules work in light and dark mode and with any theme:
+ *   tint  = colour mixed into the background   → soft fill, never loud
+ *   ink   = colour mixed with --text-normal    → dark shade in light mode,
+ *                                                 light shade in dark mode
+ */
+
+/* Body tint */
+.kanban-col.kb-col-tinted {
+  background: color-mix(in srgb, var(--kb-col-bg) 9%, var(--background-secondary));
+  border-color: color-mix(in srgb, var(--kb-col-bg) 18%, transparent);
+}
+.theme-dark .kanban-col.kb-col-tinted {
+  background: color-mix(in srgb, var(--kb-col-bg) 12%, var(--background-secondary));
+}
+
+/* Header */
+.kanban-col-hdr.kb-hdr-colored {
+  --kb-hdr-ink: color-mix(in srgb, var(--kb-hdr-bg) 58%, var(--text-normal));
+  background: color-mix(in srgb, var(--kb-hdr-bg) 16%, var(--background-secondary));
+  border-bottom: 2px solid color-mix(in srgb, var(--kb-hdr-bg) 55%, transparent);
+}
+.theme-dark .kanban-col-hdr.kb-hdr-colored {
+  --kb-hdr-ink: color-mix(in srgb, var(--kb-hdr-bg) 62%, var(--text-normal));
+  background: color-mix(in srgb, var(--kb-hdr-bg) 22%, var(--background-secondary));
+}
+.kanban-col-hdr.kb-hdr-colored .kanban-col-title { color: var(--kb-hdr-ink); }
+.kanban-col-hdr.kb-hdr-colored .kanban-col-title:hover { color: var(--kb-hdr-ink); text-decoration: underline; text-underline-offset: 3px; }
+.kanban-col-hdr.kb-hdr-colored .kanban-col-drag-handle,
+.kanban-col-hdr.kb-hdr-colored .kb-icon-btn { color: color-mix(in srgb, var(--kb-hdr-ink) 75%, transparent); }
+.kanban-col-hdr.kb-hdr-colored .kb-icon-btn:hover {
+  color: var(--kb-hdr-ink);
+  background: color-mix(in srgb, var(--kb-hdr-bg) 20%, transparent);
+}
+.kanban-col-hdr.kb-hdr-colored .kanban-col-badge {
+  background: color-mix(in srgb, var(--kb-hdr-bg) 24%, transparent);
+  color: var(--kb-hdr-ink);
+  opacity: 1;
+}
+.kanban-col-hdr.kb-hdr-colored .kanban-done-tag {
+  background: color-mix(in srgb, var(--kb-hdr-bg) 22%, transparent);
+  color: var(--kb-hdr-ink);
+}
+
+/* Header icon buttons are <button>s; Obsidian's own button styling (grey fill,
+   shadow) would otherwise draw a box around each icon. */
+.kanban-col-hdr button.kb-icon-btn {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  height: auto;
+  padding: 3px 4px;
+}
+.kanban-col-hdr button.kb-icon-btn:hover { background: var(--background-modifier-hover); }
+.kanban-col-hdr.kb-hdr-colored button.kb-icon-btn:hover { background: color-mix(in srgb, var(--kb-hdr-bg) 20%, transparent); }
+
+/* Swatch picker in the column dialog */
+.kb-color-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.kb-color-row .kb-color-swatch {
+  box-sizing: border-box;
+  width: 24px;
+  height: 24px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--sw, var(--background-primary));
+  box-shadow: none;
+  cursor: pointer;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s;
+}
+.kb-color-row .kb-color-swatch:hover { transform: scale(1.12); }
+.kb-color-row .kb-color-swatch:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.kb-color-row .kb-color-swatch.is-selected { outline: 2px solid var(--text-normal); outline-offset: 2px; }
+/* "No colour": an empty circle with a diagonal stroke */
+.kb-color-none::after {
+  content: "";
+  position: absolute;
+  width: 70%;
+  height: 1.5px;
+  background: var(--text-faint);
+  transform: rotate(-45deg);
+}
+.kb-color-custom { overflow: hidden; }
+.kb-color-custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+}
+.kb-color-custom-icon { display: inline-flex; color: var(--text-muted); pointer-events: none; }
+.kb-color-custom-icon svg { width: 13px; height: 13px; }
+.kb-color-custom.is-selected .kb-color-custom-icon { color: #fff; mix-blend-mode: difference; }
